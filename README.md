@@ -4,7 +4,7 @@ Load an X-Plane 12 `Data.txt` flight log in your browser, then plot, crop, fit a
 flight-test coursework: performance (including range and endurance), static stability from trim points, dynamic modes,
 and propulsion-only control.
 
-**Live app:** https://mithunkrish-05.github.io/XPlane-Plotter/
+**Live app:** https://advanced-macro-systems.github.io/XPlane-Plotter/
 
 > Your file is read by your browser and never uploaded. Workspaces (test points, panels, formulas) are saved in this
 > browser per file, so opening the same log again brings them back.
