@@ -1,8 +1,18 @@
 /*
- * X-Plane Plotter: a soft, Jira-like look in light and dark (after the Bristol FSAI Board), with Bristol red as the
- * accent and the Geist type family. The theme is <html data-theme="light|dark"> (src/lib/theme.ts). Light is the base;
- * dark overrides it. Chart colours (series slots, grid, axis ink) are tokens too, so charts follow the theme
+ * X-Plane Plotter's two themes, after the Bristol FSAI Board (Geist type, mono uppercase eyebrows), each with its own
+ * identity rather than one look inverted. The theme is <html data-theme="light|dark"> (src/lib/theme.ts). Light is the
+ * base; dark overrides it. Chart colours (series slots, grid, axis ink) are tokens too, so charts follow the theme
  * (src/charts/theme.ts reads them).
+ *
+ *   Light, "daylight paper": white cards on a cool-grey desk, navy ink, hairline borders. Bristol red is a solid fill
+ *   only (primary buttons, the open tab's underline, the logo); its accent text, tints and borders are neutral ink,
+ *   toggles that are on and ticked boxes use the info blue, and a segmented control's choice is a raised white pill.
+ *   Dark, "night cockpit": navy-black instrument panels in the avionics colour language: cyan is the accent (primary
+ *   buttons, the open tab, focus, links, the logo, on / selected / pressed states), amber is caution, green is OK, red
+ *   only errors, and magenta the time-history selection (like an active route).
+ *
+ * No decorative gradients or glows in either theme. Text on a solid --accent or --info fill uses --text-on-accent /
+ * --text-on-info (white in light, near-black in dark).
  */
 
 :root {
@@ -13,33 +23,35 @@
   --bg-inset: #ffffff; /* the header */
   --surface: #ffffff; /* cards, side panels, dialogs */
   --surface-overlay: #ffffff; /* menus and popovers */
-  --surface-hover: #fafbfc; /* a row or card under the pointer */
-  --surface-2: #f7f8f9; /* quiet fills: table header, code, callouts */
-  --surface-3: #f1f2f4; /* stronger fills: tags, pressed things */
-  --surface-sunken: #f7f8f9; /* the canvas behind cards */
-  --overlay: rgba(9, 30, 66, 0.45);
-  --glow: rgba(171, 31, 45, 0.09);
+  --surface-hover: #f6f8fa; /* a row or card under the pointer */
+  --surface-2: #f4f6f9; /* quiet fills: table header, code, callouts */
+  --surface-3: #eaedf2; /* stronger fills: tags, pressed things */
+  --surface-sunken: #eff2f6; /* the canvas behind cards */
+  --overlay: rgba(9, 30, 66, 0.45); /* behind a dialog */
+  --overlay-soft: rgba(9, 30, 66, 0.16); /* behind the loading card */
 
   /* Lines */
-  --border: #dcdfe4;
-  --border-muted: #ebecf0;
-  --border-strong: #b3b9c4;
+  --border: #d8dde5;
+  --border-muted: #e3e7ed;
+  --border-strong: #a5aebd;
 
   /* Text */
   --text: #172b4d;
   --text-muted: #44546f;
-  --text-subtle: #626f86;
+  --text-subtle: #5e6b82;
   --text-inverse: #ffffff;
+  --text-selection: rgba(12, 102, 228, 0.2); /* selected text */
   --link: #0c66e4;
 
-  /* Bristol red */
+  /* Accent: Bristol red, as a solid fill only */
   --accent: #ab1f2d;
   --accent-hover: #951b27;
   --accent-active: #7f1721;
-  --accent-text: #ab1f2d;
-  --accent-soft: rgba(171, 31, 45, 0.07);
-  --accent-border: rgba(171, 31, 45, 0.45);
-  --focus: #388bff;
+  --text-on-accent: #ffffff;
+  --accent-text: #172b4d;
+  --accent-soft: rgba(9, 30, 66, 0.06);
+  --accent-border: rgba(9, 30, 66, 0.55);
+  --focus: #2a7bef;
 
   /* States */
   --success: #22a06b;
@@ -53,27 +65,37 @@
   --danger-soft: #ffeceb;
   --danger-soft-hover: #ffd5d2;
   --danger-border: #fd9891;
+  --info: #0c66e4; /* on / selected as a solid: ticked boxes, progress */
+  --text-on-info: #ffffff;
   --info-soft: #e9f2ff;
   --info-text: #0055cc;
 
   /* Controls */
   --btn-bg: rgba(9, 30, 66, 0.06);
-  --btn-bg-hover: rgba(9, 30, 66, 0.12);
-  --btn-bg-active: rgba(9, 30, 66, 0.18);
-  --input-bg: #f7f8f9;
-  --input-bg-hover: #f1f2f4;
-  --input-border: #dcdfe4;
+  --btn-bg-hover: rgba(9, 30, 66, 0.11);
+  --btn-bg-active: rgba(9, 30, 66, 0.17);
+  --input-bg: #ffffff;
+  --input-bg-hover: #f6f8fa;
+  --input-border: #8a94a6;
+  --switch-knob: #172b4d; /* the light/dark switch */
+  --switch-knob-text: #ffffff;
+  --segment-on: var(--surface); /* the chosen option of a segmented control: a raised white pill */
+  --segment-on-text: var(--text);
+  --segment-on-shadow: var(--shadow-card);
 
-  /* Charts (validated with the dataviz palette checker against --surface: all hard gates pass; light slots 3, 4, 5
-     sit under 3:1 contrast, so every chart keeps a legend, a tooltip and a table view) */
+  /* Charts (the series slots are validated with the dataviz palette checker against the chart surface and pass every
+     hard gate; light slots 3, 4, 5 sit under 3:1 contrast, so every chart keeps a legend, a tooltip and a table view) */
   --chart-surface: #ffffff;
   --chart-text: #172b4d;
-  --chart-text-muted: #626f86;
-  --chart-grid: #ebecf0;
-  --chart-axis: #b3b9c4;
+  --chart-text-muted: #5e6b82;
+  --chart-grid: #e7eaef;
+  --chart-axis: #a5aebd;
   --chart-crosshair: #44546f;
-  --chart-selection: rgba(12, 102, 228, 0.12);
-  --chart-selection-border: rgba(12, 102, 228, 0.55);
+  --chart-selection: rgba(12, 102, 228, 0.12); /* the time-history selection band */
+  --chart-selection-border: rgba(12, 102, 228, 0.78);
+  --chart-selection-text: #0055cc;
+  --chart-zoom-window: rgba(12, 102, 228, 0.12); /* the zoom slider's window and the X-Y zoom box */
+  --chart-zoom-window-border: rgba(12, 102, 228, 0.78);
   --series-1: #2a78d6; /* blue */
   --series-2: #eb6834; /* orange */
   --series-3: #1baf7a; /* aqua */
@@ -93,6 +115,7 @@
   --shadow-card-hover: 0 4px 8px -2px rgba(9, 30, 66, 0.2), 0 0 1px rgba(9, 30, 66, 0.3);
   --shadow: 0 8px 16px -4px rgba(9, 30, 66, 0.2), 0 0 1px rgba(9, 30, 66, 0.3);
   --shadow-lg: 0 16px 32px -8px rgba(9, 30, 66, 0.26), 0 0 1px rgba(9, 30, 66, 0.3);
+  --pin-shadow: rgba(9, 30, 66, 0.35); /* the edge of a pinned table column */
 
   --font: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
@@ -105,64 +128,79 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  --bg: #1d2125;
-  --bg-inset: #1d2125;
-  --surface: #22272b;
-  --surface-overlay: #282e33;
-  --surface-hover: #282e33;
-  --surface-2: #282e33;
-  --surface-3: #2c333a;
-  --surface-sunken: #161a1d;
-  --overlay: rgba(3, 4, 4, 0.6);
-  --glow: rgba(171, 31, 45, 0.24);
+  --bg: #070b14;
+  --bg-inset: #070b14;
+  --surface: #0d1421;
+  --surface-overlay: #121b2b;
+  --surface-hover: #121b2b;
+  --surface-2: #121b2b;
+  --surface-3: #172235;
+  --surface-sunken: #070b14;
+  --overlay: rgba(2, 5, 12, 0.72);
+  --overlay-soft: rgba(2, 5, 12, 0.5);
 
-  --border: #38414a;
-  --border-muted: #2c333a;
-  --border-strong: #596773;
+  --border: #1f2b3f;
+  --border-muted: #172235;
+  --border-strong: #33445e;
 
-  --text: #c7d1db;
-  --text-muted: #9fadbc;
-  --text-subtle: #8c9bab;
-  --text-inverse: #1d2125;
-  --link: #579dff;
+  --text: #e6edf7;
+  --text-muted: #9fb0c8;
+  --text-subtle: #8193ad;
+  --text-inverse: #070b14;
+  --text-selection: rgba(34, 195, 238, 0.3);
+  --link: #5fd8f5;
 
-  --accent: #ab1f2d;
-  --accent-hover: #c22a3a;
-  --accent-active: #8f1824;
-  --accent-text: #ff8f87;
-  --accent-soft: rgba(248, 113, 104, 0.12);
-  --accent-border: rgba(248, 113, 104, 0.5);
-  --focus: #85b8ff;
+  /* Accent: avionics cyan */
+  --accent: #22c3ee;
+  --accent-hover: #4fd2f2;
+  --accent-active: #12a9cf;
+  --text-on-accent: #031018;
+  --accent-text: #5fd8f5;
+  --accent-soft: rgba(34, 195, 238, 0.12);
+  --accent-border: rgba(34, 195, 238, 0.5);
+  --focus: #5fd8f5;
 
-  --success: #4bce97;
-  --success-text: #7ee2b8;
-  --success-soft: rgba(75, 206, 151, 0.16);
-  --warning: #fea362;
-  --warning-text: #fec195;
-  --warning-soft: #38291e;
-  --danger: #f87168;
-  --danger-text: #fd9891;
-  --danger-soft: #42221f;
-  --danger-soft-hover: #5d1f1a;
-  --danger-border: #ae2e24;
-  --info-soft: #1c2b41;
-  --info-text: #85b8ff;
+  /* States: green OK, amber caution, red errors only */
+  --success: #3ddc97;
+  --success-text: #7ff0c0;
+  --success-soft: rgba(61, 220, 151, 0.14);
+  --warning: #f5b53d;
+  --warning-text: #ffd27a;
+  --warning-soft: rgba(245, 181, 61, 0.14);
+  --danger: #ff6b6b;
+  --danger-text: #ffa3a3;
+  --danger-soft: rgba(255, 107, 107, 0.14);
+  --danger-soft-hover: rgba(255, 107, 107, 0.22);
+  --danger-border: rgba(255, 107, 107, 0.5);
+  --info: #22c3ee;
+  --text-on-info: #031018;
+  --info-soft: rgba(34, 195, 238, 0.12);
+  --info-text: #7fe3fa;
 
-  --btn-bg: rgba(161, 189, 217, 0.08);
-  --btn-bg-hover: rgba(161, 189, 217, 0.16);
-  --btn-bg-active: rgba(161, 189, 217, 0.24);
-  --input-bg: #22272b;
-  --input-bg-hover: #282e33;
-  --input-border: #38414a;
+  --btn-bg: rgba(130, 165, 215, 0.08);
+  --btn-bg-hover: rgba(130, 165, 215, 0.15);
+  --btn-bg-active: rgba(130, 165, 215, 0.22);
+  --input-bg: #0a101b;
+  --input-bg-hover: #0f1726;
+  --input-border: #55678a;
+  --switch-knob: #22c3ee;
+  --switch-knob-text: #031018;
+  --segment-on: rgba(34, 195, 238, 0.14); /* a lit cyan segment */
+  --segment-on-text: #7fe3fa;
+  --segment-on-shadow: inset 0 0 0 1px rgba(34, 195, 238, 0.35);
 
-  --chart-surface: #22272b;
-  --chart-text: #c7d1db;
-  --chart-text-muted: #8c9bab;
-  --chart-grid: #2c333a;
-  --chart-axis: #454f59;
-  --chart-crosshair: #9fadbc;
-  --chart-selection: rgba(87, 157, 255, 0.16);
-  --chart-selection-border: rgba(133, 184, 255, 0.6);
+  /* Charts: the series slots are validated on --chart-surface; the selection is magenta, zoom windows cyan */
+  --chart-surface: #0d1421;
+  --chart-text: #e6edf7;
+  --chart-text-muted: #8193ad;
+  --chart-grid: #172235;
+  --chart-axis: #2b3a55;
+  --chart-crosshair: #9fb0c8;
+  --chart-selection: rgba(217, 70, 239, 0.16);
+  --chart-selection-border: rgba(232, 121, 249, 0.7);
+  --chart-selection-text: #f0abfc;
+  --chart-zoom-window: rgba(34, 195, 238, 0.14);
+  --chart-zoom-window-border: rgba(95, 216, 245, 0.7);
   --series-1: #3987e5;
   --series-2: #d95926;
   --series-3: #199e70;
@@ -172,11 +210,13 @@
   --series-7: #9085e9;
   --series-8: #e66767;
 
-  --shadow-sm: 0 1px 1px rgba(3, 4, 4, 0.4);
-  --shadow-card: 0 1px 1px rgba(3, 4, 4, 0.5), 0 0 1px rgba(3, 4, 4, 0.5);
-  --shadow-card-hover: 0 4px 8px -2px rgba(3, 4, 4, 0.6), 0 0 0 1px rgba(166, 197, 226, 0.12);
-  --shadow: 0 0 0 1px rgba(166, 197, 226, 0.12), 0 8px 16px -4px rgba(3, 4, 4, 0.5);
-  --shadow-lg: 0 0 0 1px rgba(166, 197, 226, 0.12), 0 16px 32px -8px rgba(3, 4, 4, 0.6);
+  /* Flat shadows with a faint blue hairline */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(120, 160, 220, 0.1);
+  --shadow-card-hover: 0 4px 10px -2px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(120, 160, 220, 0.16);
+  --shadow: 0 0 0 1px rgba(120, 160, 220, 0.14), 0 10px 20px -6px rgba(0, 0, 0, 0.7);
+  --shadow-lg: 0 0 0 1px rgba(120, 160, 220, 0.16), 0 18px 36px -10px rgba(0, 0, 0, 0.75);
+  --pin-shadow: rgba(0, 0, 0, 0.8);
 }
 
 /*
@@ -192,14 +232,19 @@
 .slot-6 { --opt-solid: var(--series-7); --opt-fg: #5e4db2; --opt-bg: #f3f0ff; --opt-border: #b8acf6; }
 .slot-7 { --opt-solid: var(--series-8); --opt-fg: #ae2e24; --opt-bg: #ffeceb; --opt-border: #fd9891; }
 
-[data-theme='dark'] .slot-0 { --opt-fg: #85b8ff; --opt-bg: #1c2b41; --opt-border: #0055cc; }
-[data-theme='dark'] .slot-1 { --opt-fg: #fec195; --opt-bg: #38291e; --opt-border: #a54800; }
-[data-theme='dark'] .slot-2 { --opt-fg: #7ee2b8; --opt-bg: #1c3329; --opt-border: #216e4e; }
-[data-theme='dark'] .slot-3 { --opt-fg: #f5cd47; --opt-bg: #332e1b; --opt-border: #7f5f01; }
-[data-theme='dark'] .slot-4 { --opt-fg: #f797d2; --opt-bg: #3d2232; --opt-border: #943d73; }
-[data-theme='dark'] .slot-5 { --opt-fg: #7ee2b8; --opt-bg: #16301f; --opt-border: #216e4e; }
-[data-theme='dark'] .slot-6 { --opt-fg: #b8acf6; --opt-bg: #2b273f; --opt-border: #5e4db2; }
-[data-theme='dark'] .slot-7 { --opt-fg: #fd9891; --opt-bg: #42221f; --opt-border: #ae2e24; }
+/* Dark: light text on a tint of the slot colour mixed into the panel, so the chips sit on the navy surfaces. */
+[data-theme='dark'] .slot-0 { --opt-fg: #85b8ff; }
+[data-theme='dark'] .slot-1 { --opt-fg: #fec195; }
+[data-theme='dark'] .slot-2 { --opt-fg: #7ee2b8; }
+[data-theme='dark'] .slot-3 { --opt-fg: #f5cd47; }
+[data-theme='dark'] .slot-4 { --opt-fg: #f797d2; }
+[data-theme='dark'] .slot-5 { --opt-fg: #7ee2b8; }
+[data-theme='dark'] .slot-6 { --opt-fg: #b8acf6; }
+[data-theme='dark'] .slot-7 { --opt-fg: #fd9891; }
+[data-theme='dark'] :is(.slot-0, .slot-1, .slot-2, .slot-3, .slot-4, .slot-5, .slot-6, .slot-7) {
+  --opt-bg: color-mix(in srgb, var(--opt-solid) 18%, var(--surface));
+  --opt-border: color-mix(in srgb, var(--opt-solid) 60%, var(--surface));
+}
 
 /* ---------------------------------------------------------------- base */
 
@@ -249,7 +294,7 @@ textarea {
 }
 
 ::selection {
-  background: rgba(171, 31, 45, 0.22);
+  background: var(--text-selection);
 }
 
 * {
@@ -344,13 +389,18 @@ code,
 }
 .btn-primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-hover);
 }
 .btn-primary:active:not(:disabled) {
   background: var(--accent-active);
+}
+/* A primary action that cannot run yet looks like any disabled button: never a washed-out accent tint. */
+.btn-primary:disabled {
+  background: var(--btn-bg);
+  color: var(--text);
 }
 .btn-danger {
   background: var(--danger-soft);
@@ -396,7 +446,8 @@ code,
 .btn-icon.btn-xs {
   width: 24px;
 }
-/* A toggle that is on (Zoom box, New panel ...): info blue, because red is kept for primary actions and the open tab. */
+/* A toggle that is on (Zoom box, New panel ...): the info tint (blue in light, cyan in dark); the solid accent is kept for
+   primary actions and the open tab. */
 .btn[aria-pressed='true'] {
   background: var(--info-soft);
   color: var(--info-text);
@@ -431,9 +482,9 @@ code,
 }
 .segmented-option[aria-pressed='true'],
 .segmented-option[aria-checked='true'] {
-  background: var(--surface);
-  color: var(--text);
-  box-shadow: var(--shadow-card);
+  background: var(--segment-on);
+  color: var(--segment-on-text);
+  box-shadow: var(--segment-on-shadow);
 }
 
 /* ---------------------------------------------------------------- form controls */
@@ -536,7 +587,7 @@ code,
   width: 16px;
   height: 16px;
   margin: 0;
-  accent-color: var(--accent);
+  accent-color: var(--info);
 }
 
 /* ---------------------------------------------------------------- chips, lozenges, badges */
@@ -764,7 +815,7 @@ code,
   width: 16px;
   height: 16px;
   border: 2px solid var(--border);
-  border-top-color: var(--accent);
+  border-top-color: var(--info);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -786,7 +837,7 @@ code,
   position: absolute;
   inset: 0 auto 0 0;
   border-radius: inherit;
-  background: var(--accent);
+  background: var(--info);
   transition: width 120ms linear;
 }
 

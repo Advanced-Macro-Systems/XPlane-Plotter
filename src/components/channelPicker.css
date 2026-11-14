@@ -107,7 +107,7 @@
   display: inline-flex;
   flex: none;
   width: 16px;
-  color: var(--accent-text);
+  color: var(--link);
 }
 .cp-text {
   display: flex;

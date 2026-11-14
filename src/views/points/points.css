@@ -182,16 +182,10 @@
 }
 /* Soft edges where the channel columns slide under the pinned ones. */
 .pt-table .pt-col-name {
-  box-shadow: 6px 0 8px -8px rgba(9, 30, 66, 0.35);
+  box-shadow: 6px 0 8px -8px var(--pin-shadow);
 }
 .pt-table .pt-col-actions {
-  box-shadow: -6px 0 8px -8px rgba(9, 30, 66, 0.35);
-}
-[data-theme='dark'] .pt-table .pt-col-name {
-  box-shadow: 6px 0 8px -8px rgba(0, 0, 0, 0.8);
-}
-[data-theme='dark'] .pt-table .pt-col-actions {
-  box-shadow: -6px 0 8px -8px rgba(0, 0, 0, 0.8);
+  box-shadow: -6px 0 8px -8px var(--pin-shadow);
 }
 
 .pt-sort {

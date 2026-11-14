@@ -128,8 +128,13 @@ unit-tested modules next to them:
 
 ## UI conventions (after the Bristol FSAI Board look)
 
-- Tokens in `styles/global.css`; light/dark via `<html data-theme>`; Geist / Geist Mono; Bristol red accent for
-  primary actions and the active tab underline only. Toggles that are on (`aria-pressed`) use the info blue.
+- Tokens in `styles/global.css`; light/dark via `<html data-theme>`; Geist / Geist Mono. Each theme has its own
+  identity, not one look inverted. Light ("daylight paper"): white cards on a cool-grey canvas, navy ink, Bristol red
+  only as a solid fill (primary buttons, the open tab's underline, the logo). Dark ("night cockpit"): navy-black
+  panels, cyan accent, amber caution, green OK, red errors only, a magenta time-history selection. Toggles that are
+  on (`aria-pressed`) use the info tint (`--info-soft` / `--info-text`: blue in light, cyan in dark); a segmented
+  control's choice is `--segment-on` (a raised white pill in light, lit cyan in dark). Text on a solid `--accent` or
+  `--info` uses `--text-on-accent` / `--text-on-info`. No decorative gradients, glows or red washes.
 - Components: `.btn` (`-primary`, `-ghost`, `-outline`, `-sm`, `-icon`), `.segmented`, `.input`, `.select`,
   `.chip` + `.slot-N`, `.badge`, `.card`, `.callout`, `.table` in a `.table-wrap`, `.eyebrow` (mono uppercase labels),
   `Modal`, `Dropdown`, `.menu-item`. Icons: `@primer/octicons-react`. Shared view layout in `components/view.css`.

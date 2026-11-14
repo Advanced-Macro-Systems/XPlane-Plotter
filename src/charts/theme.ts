@@ -17,8 +17,11 @@ export interface ChartTheme {
   grid: string
   axis: string
   crosshair: string
+  /** The time-history selection band (blue in light, magenta in dark) */
   selection: string
   selectionBorder: string
+  /** The zoom slider's window, the range on screen (blue in light, cyan in dark: not the selection colour) */
+  zoomWindow: string
   /** The 8 categorical slots, in fixed order (never cycled beyond 8 — callers cap series at 8) */
   series: string[]
   font: string
@@ -35,12 +38,13 @@ const LIGHT_SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#0
 const LIGHT = {
   surface: '#ffffff',
   text: '#172b4d',
-  textMuted: '#626f86',
-  grid: '#ebecf0',
-  axis: '#b3b9c4',
+  textMuted: '#5e6b82',
+  grid: '#e7eaef',
+  axis: '#a5aebd',
   crosshair: '#44546f',
   selection: 'rgba(12, 102, 228, 0.12)',
-  selectionBorder: 'rgba(12, 102, 228, 0.55)',
+  selectionBorder: 'rgba(12, 102, 228, 0.78)',
+  zoomWindow: 'rgba(12, 102, 228, 0.12)',
 }
 /** The app's popover shadow (--shadow, light). */
 const LIGHT_SHADOW = '0 8px 16px -4px rgba(9, 30, 66, 0.2), 0 0 1px rgba(9, 30, 66, 0.3)'
@@ -55,6 +59,7 @@ const TOKENS = {
   crosshair: '--chart-crosshair',
   selection: '--chart-selection',
   selectionBorder: '--chart-selection-border',
+  zoomWindow: '--chart-zoom-window',
 } satisfies Record<keyof typeof LIGHT, string>
 
 /** Axis-label size on screen; paper exports are larger so text survives being scaled down into a report. */
@@ -77,6 +82,7 @@ export function readChartTheme(mode: ChartMode): ChartTheme {
     crosshair: read(TOKENS.crosshair, LIGHT.crosshair),
     selection: read(TOKENS.selection, LIGHT.selection),
     selectionBorder: read(TOKENS.selectionBorder, LIGHT.selectionBorder),
+    zoomWindow: read(TOKENS.zoomWindow, LIGHT.zoomWindow),
     series: LIGHT_SERIES.map((fallback, slot) => read(`--series-${slot + 1}`, fallback)),
     // zrender writes the font into a double-quoted SVG attribute without escaping it, so keep its quotes single.
     font: read('--font', FONT).replace(/"/g, "'"),
@@ -271,8 +277,9 @@ function paperTheme(): ChartTheme {
     grid: '#e6e8ec',
     axis: '#8590a2',
     crosshair: '#44546f',
-    selection: LIGHT.selection,
-    selectionBorder: LIGHT.selectionBorder,
+    selection: 'rgba(12, 102, 228, 0.12)',
+    selectionBorder: 'rgba(12, 102, 228, 0.55)',
+    zoomWindow: 'rgba(12, 102, 228, 0.12)',
     series: [...LIGHT_SERIES],
     font: FONT,
     mono: MONO,

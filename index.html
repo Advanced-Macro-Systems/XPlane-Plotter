@@ -4,26 +4,44 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#ffffff" />
+    <!-- The browser toolbar takes each theme's page colour (--bg in src/styles/global.css); the script below and
+         src/lib/theme.ts set both to the theme showing when a saved choice differs from the device. -->
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#070b14" media="(prefers-color-scheme: dark)" />
     <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
       content="Load X-Plane 12 Data.txt flight logs in your browser and plot, crop, fit and export any channel. Files never leave your device."
     />
     <title>X-Plane Plotter</title>
+    <style>
+      /* The page colour of each theme (--bg) until the app's CSS arrives, so a dark start never flashes white. */
+      html {
+        background: #ffffff;
+        color-scheme: light;
+      }
+      html[data-theme='dark'] {
+        background: #070b14;
+        color-scheme: dark;
+      }
+    </style>
     <script>
-      // The saved theme before the first paint, so the page never flashes the wrong one (see src/lib/theme.ts).
-      // Nothing saved yet (a first visit): follow the device.
+      // The theme before the first paint, so the page never flashes the wrong one (see src/lib/theme.ts): ?theme= in
+      // the URL, else the saved choice; nothing saved yet (a first visit) follows the device.
       ;(function () {
-        var choice = null
-        try {
-          choice = localStorage.getItem('xpp:theme')
-        } catch (error) {
-          // storage unavailable: use the default
+        var choice = new URLSearchParams(window.location.search).get('theme')
+        if (choice !== 'light' && choice !== 'dark' && choice !== 'system') {
+          try {
+            choice = localStorage.getItem('xpp:theme')
+          } catch (error) {
+            choice = null // storage unavailable: use the default
+          }
         }
         var deviceDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
-        var theme = choice === 'dark' || ((choice === 'system' || choice === null) && deviceDark) ? 'dark' : 'light'
+        var theme = choice === 'dark' || ((choice !== 'light' && choice !== 'dark') && deviceDark) ? 'dark' : 'light'
         document.documentElement.setAttribute('data-theme', theme)
+        var metas = document.querySelectorAll('meta[name="theme-color"]')
+        for (var i = 0; i < metas.length; i += 1) metas[i].setAttribute('content', theme === 'dark' ? '#070b14' : '#ffffff')
       })()
     </script>
   </head>

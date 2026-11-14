@@ -1,7 +1,7 @@
 /*
  * App shell (src/layout/*): header, file switcher, tab bar, landing page, drop target, loading card, help dialog.
- * Class prefix: sh-. After the Bristol FSAI Board header: a 56 px top row, a 44 px tab bar, red only on the primary
- * action and under the open tab.
+ * Class prefix: sh-. After the Bristol FSAI Board header: a 56 px top row, a 44 px tab bar, the solid accent (Bristol red
+ * in light, cyan in dark) only on the primary action and under the open tab.
  */
 
 /* ---------------------------------------------------------------- header */
@@ -140,7 +140,7 @@
   display: inline-flex;
   flex: none;
   width: 16px;
-  color: var(--accent-text);
+  color: var(--link);
 }
 .sh-ds-text {
   display: flex;
@@ -202,9 +202,9 @@
   color: var(--text);
 }
 .sh-theme-option[aria-pressed='true'] {
-  background: var(--surface);
-  color: var(--text);
-  box-shadow: var(--shadow-card);
+  background: var(--segment-on);
+  color: var(--segment-on-text);
+  box-shadow: var(--segment-on-shadow);
 }
 .sh-settings-item {
   align-items: flex-start;
@@ -282,7 +282,7 @@
   cursor: pointer;
   isolation: isolate;
 }
-/* The soft highlight behind a tab, and the red line under the open one. */
+/* The soft highlight behind a tab, and the accent line under the open one. */
 .sh-tab::before {
   content: '';
   position: absolute;
@@ -404,9 +404,7 @@
   inset: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  background:
-    radial-gradient(ellipse 80% 420px at 50% -60px, var(--glow), transparent 70%),
-    var(--surface-sunken);
+  background: var(--surface-sunken);
 }
 .sh-landing-inner {
   display: flex;
@@ -424,7 +422,7 @@
   gap: 12px;
   text-align: center;
 }
-/* As on the board's sign-in page: Geist Mono, heavy, the last words in red. */
+/* As on the board's sign-in page: Geist Mono, heavy, the last words in the accent ink (navy in light, cyan in dark). */
 .sh-hero-title {
   max-width: 760px;
   font-family: var(--mono);
@@ -478,7 +476,7 @@
   height: 52px;
   margin-bottom: 4px;
   border-radius: 50%;
-  background: var(--accent-soft);
+  background: var(--surface-3);
   color: var(--accent-text);
   pointer-events: none;
 }
@@ -570,7 +568,8 @@
   padding: 0;
   list-style: none;
 }
-/* A short rule in the accent tint before each instruction: calmer than bullets inside a numbered card. */
+/* A short rule before each instruction (accent border: neutral ink in light, cyan in dark): calmer than bullets inside a
+   numbered card. */
 .sh-step-list li {
   position: relative;
   padding-left: 18px;
@@ -633,7 +632,7 @@
   text-align: center;
 }
 .sh-xp-head .sh-xp-on {
-  color: var(--accent-text);
+  color: var(--info-text);
 }
 .sh-xp-index {
   color: var(--text-subtle);
@@ -659,9 +658,9 @@
   background: var(--surface);
 }
 .sh-xp-box-on {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
+  border-color: var(--info);
+  background: var(--info);
+  color: var(--text-on-info);
 }
 
 /* A text button that reads like a link. */
@@ -849,7 +848,7 @@
   height: 60px;
   margin-bottom: 8px;
   border-radius: 50%;
-  background: var(--accent-soft);
+  background: var(--surface-3);
   color: var(--accent-text);
 }
 .sh-dropzone-title {
@@ -876,13 +875,10 @@
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(9, 30, 66, 0.16);
+  background: var(--overlay-soft);
   backdrop-filter: blur(1.5px);
   /* Short loads (the demo) finish before the card shows, so nothing flashes. */
   animation: sh-fade 160ms ease-out 120ms backwards;
-}
-[data-theme='dark'] .sh-loading {
-  background: rgba(3, 4, 4, 0.45);
 }
 .sh-loading-card {
   display: flex;

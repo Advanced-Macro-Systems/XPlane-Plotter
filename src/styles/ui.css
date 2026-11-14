@@ -160,7 +160,7 @@
 }
 .theme-switch[aria-checked='false'] .theme-switch-sun,
 .theme-switch[aria-checked='true'] .theme-switch-moon {
-  color: #fff;
+  color: var(--switch-knob-text);
 }
 .theme-switch-knob {
   position: absolute;
@@ -169,7 +169,7 @@
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--switch-knob);
   box-shadow: var(--shadow-sm);
   transition: transform 180ms ease;
 }

@@ -39,11 +39,15 @@ function shownTheme(): 'light' | 'dark' {
   return resolveTheme(choice, darkQuery?.matches ?? false)
 }
 
+/** The browser toolbar colour of each theme: its page colour (--bg in styles/global.css; index.html repeats both). */
+const TOOLBAR_COLORS = { light: '#ffffff', dark: '#070b14' } as const
+
 /** Puts the current choice on the page (and the browser's toolbar colour). */
 export function applyTheme(): void {
   const theme = shownTheme()
   document.documentElement.dataset.theme = theme
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#1d2125' : '#ffffff')
+  // index.html has one theme-color per device scheme; both follow the theme showing, which may not be the device's.
+  for (const meta of document.querySelectorAll('meta[name="theme-color"]')) meta.setAttribute('content', TOOLBAR_COLORS[theme])
 }
 
 function changed(): void {

@@ -16,16 +16,20 @@ function readGlobalCss(): string {
   return fs.readFileSync(new URL('../styles/global.css', import.meta.url), 'utf8')
 }
 
-/** The custom properties of the first `:root { ... }` block (the light theme) in styles/global.css. */
-function lightTokens(): Map<string, string> {
+/** The custom properties of the first block in styles/global.css that opens with `opening` (comments left out). */
+function tokensOf(opening: string): Map<string, string> {
   const css = readGlobalCss()
-  const start = css.indexOf(':root {')
+  const start = css.indexOf(opening)
   expect(start).toBeGreaterThanOrEqual(0)
-  const block = css.slice(start, css.indexOf('\n}', start))
+  const block = css.slice(start, css.indexOf('\n}', start)).replace(/\/\*[\s\S]*?\*\//g, '')
   const tokens = new Map<string, string>()
   for (const match of block.matchAll(/(--[\w-]+):\s*([^;]+);/g)) tokens.set(match[1], match[2].trim())
   return tokens
 }
+
+/** The light theme (the base `:root` block) and the dark theme's overrides. */
+const lightTokens = () => tokensOf(':root {')
+const darkTokens = () => tokensOf(":root[data-theme='dark'] {")
 
 const LIGHT_SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948']
 
@@ -67,6 +71,7 @@ describe('readChartTheme', () => {
       expect(theme.crosshair).toBe(tokens.get('--chart-crosshair'))
       expect(theme.selection).toBe(tokens.get('--chart-selection'))
       expect(theme.selectionBorder).toBe(tokens.get('--chart-selection-border'))
+      expect(theme.zoomWindow).toBe(tokens.get('--chart-zoom-window'))
       expect(theme.series).toEqual([1, 2, 3, 4, 5, 6, 7, 8].map((slot) => tokens.get(`--series-${slot}`)))
       expect(theme.font).toBe(tokens.get('--font'))
       expect(theme.mono).toBe(tokens.get('--mono'))
@@ -76,6 +81,23 @@ describe('readChartTheme', () => {
 
   it('keeps the paper series identical to the light screen series', () => {
     expect(readChartTheme('paper').series).toEqual(readChartTheme('light').series)
+  })
+})
+
+describe('the two themes in global.css', () => {
+  it('gives dark its own value for every colour and shadow of light, so it never inherits a light one', () => {
+    const light = lightTokens()
+    const dark = darkTokens()
+    const colours = [...light].filter(([, value]) => /#|rgb/.test(value)).map(([name]) => name)
+    expect(colours.length).toBeGreaterThan(60)
+    expect(colours.filter((name) => !dark.has(name))).toEqual([])
+    expect([...dark.keys()].filter((name) => !light.has(name))).toEqual([])
+  })
+
+  it('keeps the chart selection and the zoom window apart in dark (magenta selection, cyan window)', () => {
+    const dark = darkTokens()
+    expect(dark.get('--chart-selection')).not.toBe(dark.get('--chart-zoom-window'))
+    expect(dark.get('--chart-selection-border')).not.toBe(dark.get('--chart-zoom-window-border'))
   })
 })
 

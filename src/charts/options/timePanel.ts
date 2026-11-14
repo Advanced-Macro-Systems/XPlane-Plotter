@@ -186,14 +186,14 @@ function sliderZoom(theme: ChartTheme, g: PanelGeometry, x: TimeXInput, show: bo
     borderColor: theme.grid,
     borderRadius: 4,
     backgroundColor: 'transparent',
-    fillerColor: theme.selection,
+    fillerColor: theme.zoomWindow,
     dataBackground: {
       lineStyle: { color: theme.axis, width: 1, opacity: 0.9 },
       areaStyle: { color: theme.grid, opacity: 0.6 },
     },
     selectedDataBackground: {
       lineStyle: { color: theme.crosshair, width: 1, opacity: 0.9 },
-      areaStyle: { color: theme.selection, opacity: 1 },
+      areaStyle: { color: theme.zoomWindow, opacity: 1 },
     },
     handleStyle: { color: theme.surface, borderColor: theme.axis, borderWidth: 1 },
     moveHandleSize: 4,

@@ -211,7 +211,7 @@
   min-width: 0;
 }
 .tv-selbar-label {
-  color: var(--info-text);
+  color: var(--chart-selection-text);
 }
 .tv-selbar-range {
   color: var(--text);

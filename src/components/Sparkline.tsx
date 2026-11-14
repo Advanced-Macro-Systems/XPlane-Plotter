@@ -90,8 +90,8 @@ function paint(
   const geometry = sparkGeometry(series.x, series.y, width, height)
   if (geometry.empty) return
   const style = window.getComputedStyle(canvas)
-  const color =
-    style.getPropertyValue(geometry.flat ? '--text-subtle' : colorVar).trim() || style.color || '#2a78d6'
+  // The token's value in the theme showing now; without it, the text colour (never a fixed hex that ignores the theme).
+  const color = style.getPropertyValue(geometry.flat ? '--text-subtle' : colorVar).trim() || style.color
   ctx.strokeStyle = color
   ctx.fillStyle = color
   ctx.lineWidth = geometry.flat ? 1 : 1.25
