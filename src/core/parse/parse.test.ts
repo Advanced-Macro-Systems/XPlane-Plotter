@@ -186,6 +186,39 @@ describe('parseText: X-Plane Data.txt', () => {
     expect(table.warnings).toEqual(['The column header changed before any data was recorded; the later header was used.'])
   })
 
+  it('skips a stray line of text (a typed note, garbled bytes) as one bad row and reads on', () => {
+    const rows = Array.from({ length: 6 }, (_, i) => xpLine([i, i + 0.5, 100 + i]))
+    for (const stray of ['phugoid run starts here', 'Ã¿Ã¾ garbled | Ã¿ | x', '  note: CG aft | trim 2 | ', 'a,_b ; c']) {
+      const text = ['', xpLine(HEAD), ...rows.slice(0, 3), stray, ...rows.slice(3), ''].join('\r\n')
+      const table = parseText(text)
+      expect(table.headers).toEqual(HEAD)
+      expect(table.rowCount).toBe(6)
+      expect(table.skippedRows).toBe(1)
+      expect(table.warnings).toEqual([])
+      expect(column(table, '_Vind,_kias')).toEqual([100, 101, 102, 103, 104, 105])
+    }
+    // Before any data row it does not replace the header either.
+    const early = parseText(['', xpLine(HEAD), 'flight 2: steady climb', ...rows, ''].join('\r\n'))
+    expect(early.headers).toEqual(HEAD)
+    expect(early.rowCount).toBe(6)
+    expect(early.warnings).toEqual([])
+    // Unterminated at the very end: the incomplete last line (rule 7), not counted.
+    const last = parseText(['', xpLine(HEAD), ...rows, 'end of test'].join('\r\n'))
+    expect(last.rowCount).toBe(6)
+    expect(last.skippedRows).toBe(0)
+    expect(last.warnings).toEqual(['The last line was incomplete and was skipped.'])
+  })
+
+  it('still takes a line of X-Plane column names as a new header, even with one column', () => {
+    const one = parseText(['', xpLine(HEAD), xpLine([1, 2, 3]), xpLine(['a,_b']), xpLine([4]), ''].join('\r\n'))
+    expect(one.rowCount).toBe(1)
+    expect(one.warnings[0]).toMatch(/^The Data Output selection changed during the recording/)
+    // A minority of odd cells (an unknown token) does not hide a real header.
+    const odd = parseText(['', xpLine(HEAD), xpLine([1, 2, 3]), xpLine(['a,_b', 'c,_d', 'odd']), xpLine([4, 5, 6]), ''].join('\r\n'))
+    expect(odd.rowCount).toBe(1)
+    expect(odd.warnings[0]).toMatch(/^The Data Output selection changed during the recording/)
+  })
+
   it('stores nan / inf / empty / garbage as NaN and parses other number forms', () => {
     const header = ['a,_1', 'b,_2', 'c,_3', 'd,_4', 'e,_5', 'f,_6', 'g,_7', 'h,_8', 'i,_9', 'j,_10', 'k,_11', 'l,_12']
     const cells = ['nan', '-nan(ind)', 'inf', '1.#INF', '', 'abc', '1e999', 'Infinity', '1.5e3', '-2.5E-2', '+7', '.5']
@@ -374,6 +407,33 @@ describe('parseText: CSV, TSV and semicolon files', () => {
   it('only counts delimiters outside quotes when choosing one', () => {
     expect(parseText('"a;b",c\n1,2\n').headers).toEqual(['a;b', 'c'])
     expect(parseText('"a\tb",c\n1,2\n').headers).toEqual(['a b', 'c'])
+  })
+
+  it('takes the more frequent of ";" and "," (a name may hold either), and TAB whenever there is one', () => {
+    const semicolonInName = parseText('time_s,Fuel flow (lb/h; total),speed_kt\n0,1200,250\n1,1210,251\n')
+    expect(semicolonInName.headers).toEqual(['time_s', 'Fuel flow (lb/h; total)', 'speed_kt'])
+    expect(column(semicolonInName, 'Fuel flow (lb/h; total)')).toEqual([1200, 1210])
+    const commaInName = parseText('Zeit;Wert (1,5 m);Höhe\n0,1;2,5;100\n')
+    expect(commaInName.headers).toEqual(['Zeit', 'Wert (1,5 m)', 'Höhe'])
+    expect(column(commaInName, 'Wert (1,5 m)')).toEqual([2.5])
+    // A tie keeps ";" (whose files may use "," in numbers).
+    expect(parseText('a;b,c\n1;2\n').headers).toEqual(['a', 'b,c'])
+    expect(parseText('t\tPosition (x, y)\tSpeed, ground\n1\t2\t3\n').headers).toEqual(['t', 'Position (x, y)', 'Speed, ground'])
+  })
+
+  it('reads a "|" inside a CSV column name as text, not as an X-Plane table', () => {
+    const quoted = parseText('time_s,"Mode A|B",speed_kt\n0,1,250\n1,2,251\n')
+    expect(quoted.format).toBe('csv')
+    expect(quoted.headers).toEqual(['time_s', 'Mode A|B', 'speed_kt'])
+    expect(quoted.rowCount).toBe(2)
+    const bare = parseText('time,a|b,c\n1,2,3\n')
+    expect(bare.format).toBe('csv')
+    expect(bare.headers).toEqual(['time', 'a|b', 'c'])
+    // X-Plane: two or more "|", or one at the end of the line (a log of a single column).
+    expect(parseText(xpText([[1, 2, 3]])).format).toBe('xplane')
+    const single = parseText(['', xpLine(['_totl,_time']), xpLine([0.5]), xpLine([0.6]), ''].join('\r\n'))
+    expect(single.format).toBe('xplane')
+    expect(column(single, '_totl,_time')).toEqual([0.5, 0.6])
   })
 })
 

@@ -132,9 +132,10 @@ function UseHelp() {
 
       <h3>Time history: zoom, select, save test points</h3>
       <p>
-        Choose <strong>Zoom</strong> or <strong>Select</strong> above the plots. In Zoom, drag across a plot to zoom in. In
-        Select, drag across a steady stretch of flight, then <strong>save it as a test point</strong> in a colour-coded group.
-        The zoom range and the selection show as chips on the right of the tab bar: <strong>×</strong> clears them.
+        Choose <strong>Zoom</strong> or <strong>Select</strong> above the plots. In Zoom, scroll to zoom in and out, drag to
+        pan, and double-click to show the whole log. In Select, drag across a steady stretch of flight (or type its start and
+        end with <strong>Set window…</strong>), then <strong>save it as a test point</strong> in a colour-coded group. The
+        zoom range and the selection show as chips on the right of the tab bar: <strong>×</strong> clears them.
       </p>
 
       <h3>Test points</h3>
@@ -172,8 +173,10 @@ function UseHelp() {
       <h3>MATLAB workflow</h3>
       <ol className="sh-help-steps">
         <li>
-          Export the <strong>MATLAB script</strong> (Overview → Export, or the export menus of the plots). It is named after the
-          log, e.g. <code>xpp_Data.m</code>.
+          Export <strong>MATLAB script: everything</strong> (Overview → Export). It is named after the log, e.g.{' '}
+          <code>xpp_Data.m</code>. The plots&apos; own export menus write one plot each, with its part in the name (
+          <code>xpp_Data_time.m</code>, <code>xpp_Data_xy.m</code>, <code>xpp_Data_modes.m</code>), so they never
+          overwrite it.
         </li>
         <li>Save it in the same folder as the log it re-reads (or set its dataFile line to the log&apos;s full path).</li>
         <li>
@@ -204,6 +207,18 @@ function UseHelp() {
                 <span className="kbd">?</span>
               </td>
               <td>This help</td>
+            </tr>
+            <tr>
+              <td>
+                <span className="kbd">Z</span> / <span className="kbd">S</span>
+              </td>
+              <td>Time history: Zoom or Select mode</td>
+            </tr>
+            <tr>
+              <td>
+                <span className="kbd">+</span> / <span className="kbd">−</span>
+              </td>
+              <td>Time history: zoom in or out</td>
             </tr>
             <tr>
               <td>

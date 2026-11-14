@@ -11,9 +11,11 @@ src/
     types.ts            the shared data model (Dataset, Channel, Workspace, ...)
     parse/              X-Plane Data.txt + CSV/TSV parsing; streaming parser shared by worker and parseText()
     dataset.ts          RawTable -> Dataset (channel ids, meanings, stats, time source, segments, signature)
+    channelStats.ts     computeStats, import-free so the parser worker sends each column's stats with it
     time.ts             time source choice, gap-collapsed elapsed time, segments, time axes, formatting
     channels/           what each header token means (see "Channel meanings"), data-set groups, recording guide
-    analysis/           stats, polynomial fits, mode identification, formula language, derived channels, decimation
+    analysis/           stats (window stats unwrap headings across north), polynomial fits, mode identification,
+                        formula language, derived channels, decimation
     export/             CSV, session JSON, MATLAB script generator, downloads
     demo/               synthetic demo flight in Data.txt format
   charts/               ECharts setup (tree-shaken), theme from CSS tokens, <EChart>, image export, number formats
@@ -41,6 +43,13 @@ src/
   physics integrates in sim time) with resets/gaps collapsed; the discontinuities become **segments**.
 - The **workspace** (panels, test points, groups, formulas, plot settings) is saved per file **signature** in
   localStorage, so reopening the same Data.txt restores it. Session JSON export/import moves it between machines.
+  Everything read back is untrusted (any page on the origin can write localStorage; sessions come from other people):
+  the recent-file list keeps only well-formed entries (`readRecent`), a saved workspace is restored only when it is a
+  version-1 object, its formulas pass `sanitizeDerived` before they are evaluated, and the rest goes through
+  `sanitizeWorkspace` (anything unreadable opens the file fresh, with a toast). `parseSession` caps a session at
+  `SESSION_LIMITS` (2,000 points, 200 groups, 500 formulas, 100 panels) so an import never freezes the page. When the
+  browser refuses a save (storage full or blocked), the store first drops saved workspaces of files no longer in the
+  recent list, then sets `saveFailed` and says once, with a "Save session" action.
 
 ## Channel meanings (core/channels)
 
@@ -114,14 +123,19 @@ unit-tested modules next to them:
 - Colours come from CSS tokens through `charts/theme.ts` (`useChartTheme()`); exports use the fixed `paper` theme.
 - **Categorical colours**: 8 validated slots in fixed order (`--series-1..8`). A chart never shows more than 8
   series; colour follows the entity (a channel keeps its slot when others are removed); a test-point group's colour
-  is its `slot`. Scatter plots with more than 3 colour classes add a second encoding (marker shape).
+  is its `slot`, and a file has at most `MAX_GROUPS` (8) groups (`addGroup` refuses a 9th). Scatter plots with more
+  than 3 colour classes add a second encoding (marker shape).
 - **No dual y-axes.** Channels with different units go in separate stacked panels (Time history) — panels share the
   x-axis, zoom and crosshair.
 - **Linked charts.** With `<EChart group>` (echarts.connect) each linked chart snaps its crosshair and tooltip to its
   own data, so charts holding differently decimated lines can lose the crosshair or show slightly different instants.
-  Time history therefore links its panels itself, by time value (`timeController.ts`); the Overview's glance stack
-  keeps `group` but reads every line at the hovered time from its own data (`valueAt`). An axis tooltip's
-  `axisValue` is the nearest sample's x; for an exact time use the `updateAxisPointer` event.
+  Time history therefore links its panels itself, by time value (`timeController.ts`). The Overview's glance stack
+  keeps `group`, but its lines stay out of the axis tooltip: an invisible series 0 (`HOVER_SERIES_ID`) holds the same
+  evenly spaced instants in every chart of the stack, so all of them snap to one instant (and a linked chart finds
+  the hovered sample by series and data index), and the tooltip reads every line at that time (`valueAt`). An axis
+  tooltip's `axisValue` is the nearest sample's x; for an exact time use the `updateAxisPointer` event.
+- The crosshair (global `axisPointer` in `baseOption`) draws on its own canvas layer (`zlevel: 1`) and never
+  highlights samples (`triggerEmphasis: false`), so hovering repaints that layer only, not every linked chart's lines.
 - Solid hairline grid, 1.5–2 px lines, markers ≥ 8 px for means, crosshair + tooltip listing every series at the
   hovered x. Tooltip HTML must escape channel names (`charts/format.ts escapeHtml`): headers are untrusted input.
 - Every chart has a table view somewhere (Channels table, Test points table, fit results).
@@ -142,6 +156,14 @@ unit-tested modules next to them:
   `ch-` channels, `ov-` overview, `sh-` shell) to avoid collisions.
 - Text from files (headers, names) is rendered as React text, never `dangerouslySetInnerHTML`.
 - Layout must work from 1280 px desktops down to tablets; phones get a usable single-column layout.
+- Focus never drops to `<body>`: `Modal` gives focus back to the control that opened it, a `Dropdown` gives it back
+  to its toggle when the popup closes with focus inside, and a toast that held focus gives it back where it came
+  from. `Dropdown` takes `haspopup`: `'menu'` (the default) for a list of actions, whose items have
+  `role="menuitem"` (focus starts on the first; ↑/↓/Home/End move), `'listbox'` for a list to pick from, `'dialog'`
+  for a panel of controls or a form. A popup closes when focus leaves it and stays inside the window on phones.
+- Toasts: one with an action (Undo, Start fresh) shows 20 s, and its time stops while the pointer is over it or focus
+  is in it; Ctrl/Cmd+Z runs the newest Undo (not while typing or in a dialog). Give undoable actions a toast whose
+  action label is "Undo".
 
 ## Testing
 
@@ -151,9 +173,23 @@ unit-tested modules next to them:
   fixtures and examples use synthetic values.
 - `npm run e2e` (scripts/e2e.mjs, after `npm run build`) drives the built app in a local Chrome/Edge with
   playwright-core: landing, every tab with the demo in light and dark, a dragged selection saved as a test point,
-  optionally a real log (`--file`), a tablet width; screenshots go to `test-results/`. It fails on any console error.
+  optionally a real log (`--file`), a tablet width; screenshots go to `test-results/`. It fails on any console error,
+  so also on anything the Content-Security-Policy blocks. `--dist` serves another build folder (`vite build
+  --outDir ...`) and `--port` another port, so several checks can run side by side.
   `node scripts/smoke.mjs <tab>` screenshots one tab from the dev server while working on it.
 - Stable `data-testid`s the e2e relies on: `landing`, `demo-button`, `file-input`, `loading-overlay`, `tab-<id>`,
   `view-<id>`, `time-mode-select`, `time-plot-area`, `selection-bar`, `save-point-button`, `save-point-confirm`,
   `points-row`.
-- CI (GitHub Actions) runs lint, tests and the build before deploying to Pages.
+- CI (GitHub Actions) runs lint, tests and the build before deploying to Pages. Its first step fails when a tracked
+  file looks like flight data or an export of it (`*.txt`, `*.csv`, `*.tsv`, `*.dat`, `xpp_*.m`, session JSON,
+  `out/`, `samples/`) or is over 1 MB. Only the deploy job may write to Pages; actions are pinned to commit SHAs
+  (Dependabot proposes updates).
+
+## Security
+
+- The built `index.html` carries a Content-Security-Policy (`vite.config.ts`, build only): scripts, styles, fonts,
+  images and the parser worker come from the app's own origin and nothing can be sent elsewhere (`connect-src
+  'self'`), so "your file is never uploaded" holds even against a compromised dependency. The inline theme script is
+  allowed by its hash, computed at build time. A feature that needs another origin must change the policy on purpose.
+- Files, session JSON and localStorage are untrusted input (see the data model above); the MATLAB script and every
+  CSV write names that start with `=`, `+`, `-`, `@` with a leading `'`, so a spreadsheet never runs them.

@@ -4,7 +4,8 @@
 //   functions: sin cos tan asin acos atan atan2 sqrt abs exp ln log10 pow min max floor ceil round sign hypot
 //              deg rad (convert) clamp(x,lo,hi) · time-aware: diff(x) d/dt (central differences, per second),
 //              integ(x) cumulative trapezoid from the first row, smooth(x, seconds) centred moving average,
-//              lag(x, rows) shift
+//              lag(x, rows) shift. The time-aware functions never reach across a segment start (a sim reset or a
+//              recording gap, Dataset.segments): a neighbour in another segment counts as missing.
 //   constants: pi, e, g0 (9.80665 m/s²), rho0 (1.225 kg/m³), kt2ms (0.514444), ft2m (0.3048), lb2n (4.4482216),
 //              lbf2n, hp2w (745.69987), nm2m (1852), fpm2ms (0.00508), t (elapsed time in seconds, per row)
 // OWNER: analysis agent. Public API below is a contract; keep these signatures.
@@ -47,6 +48,12 @@ export interface ExprContext {
   time: Float64Array
   /** Channel lookup by alias / id / token (channels/alias.ts makeResolver) */
   resolve(name: string): Float64Array | undefined
+  /**
+   * Runs of continuous time (Dataset.segments). diff, integ, smooth and lag stay inside a run: across a sim reset or
+   * a recording gap elapsed time advances by one step while the values jump, so a difference there would be absurd.
+   * Absent = one run.
+   */
+  segments?: readonly { start: number; end: number }[]
 }
 
 export interface CompiledExpr {
@@ -132,8 +139,8 @@ const FUNCTIONS = new Map<string, FunctionSpec>([
     {
       signature: 'diff(x)',
       description:
-        'Rate of change dx/dt per second: central differences on elapsed time, one-sided at the ends and next to ' +
-        'missing samples; NaN where time does not advance.',
+        'Rate of change dx/dt per second: central differences on elapsed time, one-sided at the ends, next to ' +
+        'missing samples and at sim resets or recording gaps; NaN where time does not advance.',
       minArgs: 1,
       maxArgs: 1,
     },
@@ -143,8 +150,9 @@ const FUNCTIONS = new Map<string, FunctionSpec>([
     {
       signature: 'integ(x)',
       description:
-        'Running integral of x over time in seconds from the first row (trapezoid rule; gaps bridged linearly), ' +
-        'e.g. integ(FF_1_lb_h) / 3600 is fuel burned in lb.',
+        'Running integral of x over time in seconds from the first row (trapezoid rule; missing samples bridged ' +
+        'linearly, nothing added across a sim reset or recording gap), e.g. integ(FF_1_lb_h) / 3600 is fuel ' +
+        'burned in lb.',
       minArgs: 1,
       maxArgs: 1,
     },
@@ -153,7 +161,9 @@ const FUNCTIONS = new Map<string, FunctionSpec>([
     'smooth',
     {
       signature: 'smooth(x, seconds)',
-      description: 'Centred moving average over a window of the given width in seconds (missing samples ignored).',
+      description:
+        'Centred moving average over a window of the given width in seconds (missing samples ignored; the window ' +
+        'never reaches across a sim reset or recording gap).',
       minArgs: 2,
       maxArgs: 2,
     },
@@ -164,7 +174,7 @@ const FUNCTIONS = new Map<string, FunctionSpec>([
       signature: 'lag(x, rows)',
       description:
         "x shifted by a whole number of rows: lag(x, 1) is the previous row's value, negative rows look ahead; " +
-        'rows shifted in from outside the file are NaN.',
+        'rows shifted in from outside the file, or from across a sim reset or recording gap, are NaN.',
       minArgs: 2,
       maxArgs: 2,
     },
@@ -433,7 +443,7 @@ export function compileExpression(source: string): CompiledExpr {
         }
         resolved.set(node, values)
       }
-      const value = evaluateNode(ast, { n, time, resolved })
+      const value = evaluateNode(ast, { n, time, resolved, segment: segmentIds(n, ctx.segments) })
       const out = new Float64Array(n)
       if (typeof value === 'number') {
         out.fill(Number.isFinite(value) ? value : NaN)
@@ -454,6 +464,33 @@ interface Env {
   n: number
   time: Float64Array
   resolved: Map<RefNode, Float64Array>
+  /** Segment number of each row (0, 1, ...), or null when the rows form one segment */
+  segment: Int32Array | null
+}
+
+/** The segment number of every row from the segments' starts; null when there is only one segment. */
+function segmentIds(n: number, segments: ExprContext['segments']): Int32Array | null {
+  const starts = (segments ?? [])
+    .map((s) => s.start)
+    .filter((start) => Number.isInteger(start) && start > 0 && start < n)
+    .sort((a, b) => a - b)
+  if (!starts.length) return null
+  const ids = new Int32Array(n)
+  let id = 0
+  let next = 0
+  for (let i = 0; i < n; i += 1) {
+    while (next < starts.length && starts[next] <= i) {
+      if (next === 0 || starts[next] !== starts[next - 1]) id += 1
+      next += 1
+    }
+    ids[i] = id
+  }
+  return ids
+}
+
+/** true when rows i and j are in the same segment. */
+function sameSegment(segment: Int32Array | null, i: number, j: number): boolean {
+  return segment === null || segment[i] === segment[j]
 }
 
 const at = (v: Value, i: number): number => (typeof v === 'number' ? v : v[i])
@@ -539,32 +576,33 @@ function evaluateCall(node: Extract<Node, { type: 'call' }>, env: Env): Value {
   const x = toColumn(args[0], env.n)
   switch (name) {
     case 'diff':
-      return differentiate(x, env.time, env.n)
+      return differentiate(x, env.time, env.n, env.segment)
     case 'integ':
-      return integrate(x, env.time, env.n)
+      return integrate(x, env.time, env.n, env.segment)
     case 'smooth': {
       const seconds = scalarArgument(args[1], node.args[1], 'smooth(x, seconds): seconds must be a constant number.')
       if (seconds < 0) throw new ExprError('smooth(x, seconds): seconds must not be negative.', node.args[1].pos)
-      return movingAverage(x, env.time, env.n, seconds)
+      return movingAverage(x, env.time, env.n, seconds, env.segment)
     }
     case 'lag': {
       const rows = scalarArgument(args[1], node.args[1], 'lag(x, rows): rows must be a constant number.')
-      return shift(x, env.n, roundHalfAway(rows))
+      return shift(x, env.n, roundHalfAway(rows), env.segment)
     }
   }
 }
 
 /**
- * d/dt: (x[i+1] − x[i−1]) / (t[i+1] − t[i−1]), one-sided at the ends and next to missing samples; NaN where x[i]
- * is missing or the time step is not positive.
+ * d/dt: (x[i+1] − x[i−1]) / (t[i+1] − t[i−1]), one-sided at the ends, next to missing samples and at segment
+ * edges (a neighbour across a sim reset or recording gap counts as missing); NaN where x[i] is missing or the time
+ * step is not positive.
  */
-function differentiate(x: Float64Array, t: Float64Array, n: number): Float64Array {
+function differentiate(x: Float64Array, t: Float64Array, n: number, segment: Int32Array | null): Float64Array {
   const out = new Float64Array(n).fill(NaN)
   const ok = (i: number) => Number.isFinite(x[i]) && Number.isFinite(t[i])
   for (let i = 0; i < n; i += 1) {
     if (!ok(i)) continue
-    const prev = i > 0 && ok(i - 1)
-    const next = i < n - 1 && ok(i + 1)
+    const prev = i > 0 && ok(i - 1) && sameSegment(segment, i - 1, i)
+    const next = i < n - 1 && ok(i + 1) && sameSegment(segment, i + 1, i)
     let dx: number
     let dt: number
     if (prev && next) {
@@ -584,8 +622,11 @@ function differentiate(x: Float64Array, t: Float64Array, n: number): Float64Arra
   return out
 }
 
-/** Cumulative trapezoid ∫x dt from the first finite sample (0 there); NaN rows stay NaN, gaps are bridged linearly. */
-function integrate(x: Float64Array, t: Float64Array, n: number): Float64Array {
+/**
+ * Cumulative trapezoid ∫x dt from the first finite sample (0 there); NaN rows stay NaN, missing samples are bridged
+ * linearly, and nothing is added across a segment start (the total carries on from where the last segment left it).
+ */
+function integrate(x: Float64Array, t: Float64Array, n: number, segment: Int32Array | null): Float64Array {
   const out = new Float64Array(n).fill(NaN)
   // Neumaier-compensated sum: long logs add many small increments to a growing total.
   let sum = 0
@@ -593,7 +634,7 @@ function integrate(x: Float64Array, t: Float64Array, n: number): Float64Array {
   let last = -1
   for (let i = 0; i < n; i += 1) {
     if (!Number.isFinite(x[i]) || !Number.isFinite(t[i])) continue
-    if (last >= 0) {
+    if (last >= 0 && sameSegment(segment, last, i)) {
       const dt = t[i] - t[last]
       if (dt > 0) {
         const increment = 0.5 * (x[i] + x[last]) * dt
@@ -609,11 +650,17 @@ function integrate(x: Float64Array, t: Float64Array, n: number): Float64Array {
 }
 
 /**
- * Centred moving average over |t_j − t_i| ≤ seconds/2 (time must be non-decreasing, as Dataset.elapsed is).
- * Two pointers and a running sum make it O(n) whatever the window; values are offset by the first finite sample so
- * the running sum stays small. NaN rows stay NaN; NaN samples inside the window are ignored.
+ * Centred moving average over |t_j − t_i| ≤ seconds/2 (time must be non-decreasing, as Dataset.elapsed is), within
+ * row i's segment. Two pointers and a running sum make it O(n) whatever the window; values are offset by the first
+ * finite sample so the running sum stays small. NaN rows stay NaN; NaN samples inside the window are ignored.
  */
-function movingAverage(x: Float64Array, t: Float64Array, n: number, seconds: number): Float64Array {
+function movingAverage(
+  x: Float64Array,
+  t: Float64Array,
+  n: number,
+  seconds: number,
+  segment: Int32Array | null,
+): Float64Array {
   const out = new Float64Array(n).fill(NaN)
   const half = seconds / 2
   let ref = 0
@@ -631,14 +678,14 @@ function movingAverage(x: Float64Array, t: Float64Array, n: number, seconds: num
   for (let i = 0; i < n; i += 1) {
     const ti = t[i]
     if (!Number.isFinite(ti)) continue
-    while (hi < n && (!Number.isFinite(t[hi]) || t[hi] <= ti + half)) {
+    while (hi < n && sameSegment(segment, hi, i) && (!Number.isFinite(t[hi]) || t[hi] <= ti + half)) {
       if (counts(hi)) {
         sum += x[hi] - ref
         count += 1
       }
       hi += 1
     }
-    while (lo < hi && (!Number.isFinite(t[lo]) || t[lo] < ti - half)) {
+    while (lo < hi && (!sameSegment(segment, lo, i) || !Number.isFinite(t[lo]) || t[lo] < ti - half)) {
       if (counts(lo)) {
         sum -= x[lo] - ref
         count -= 1
@@ -650,9 +697,11 @@ function movingAverage(x: Float64Array, t: Float64Array, n: number, seconds: num
   return out
 }
 
-/** out[i] = x[i − rows] (NaN outside the file). */
-function shift(x: Float64Array, n: number, rows: number): Float64Array {
+/** out[i] = x[i − rows] (NaN outside the file and across a segment start). */
+function shift(x: Float64Array, n: number, rows: number, segment: Int32Array | null): Float64Array {
   const out = new Float64Array(n).fill(NaN)
-  for (let i = Math.max(0, rows); i < Math.min(n, n + rows); i += 1) out[i] = x[i - rows]
+  for (let i = Math.max(0, rows); i < Math.min(n, n + rows); i += 1) {
+    if (sameSegment(segment, i - rows, i)) out[i] = x[i - rows]
+  }
   return out
 }

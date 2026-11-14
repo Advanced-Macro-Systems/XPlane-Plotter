@@ -74,7 +74,7 @@ function Heading({ ds }: { ds: Dataset }) {
   const items: ExportItem[] = [
     {
       section: 'For your report',
-      label: 'MATLAB script (.m)',
+      label: 'MATLAB script: everything (for run_all.m)',
       hint: 'Re-reads this log: test points, X–Y, time histories, mode fit',
       onSelect: exportMatlabScript,
     },

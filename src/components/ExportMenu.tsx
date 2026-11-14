@@ -13,7 +13,20 @@ export interface ExportItem {
   onSelect: () => void | Promise<void>
 }
 
-/** "Export ▾" button with a menu of export actions (PNG, SVG, CSV, MATLAB, session ...). */
+/** Consecutive items under one section heading (the first run has no heading when the first item names none). */
+function sections(items: readonly ExportItem[]): { title?: string; items: ExportItem[] }[] {
+  const runs: { title?: string; items: ExportItem[] }[] = []
+  for (const item of items) {
+    if (item.section || runs.length === 0) runs.push({ title: item.section, items: [] })
+    runs[runs.length - 1].items.push(item)
+  }
+  return runs
+}
+
+/**
+ * "Export ▾" button with a menu of export actions (PNG, SVG, CSV, MATLAB, session ...): a WAI-ARIA menu (↑/↓ move,
+ * Esc closes), each section a labelled group.
+ */
 export function ExportMenu({
   items,
   label = 'Export',
@@ -42,22 +55,30 @@ export function ExportMenu({
       ariaLabel={label}
     >
       {(close) => (
-        <div data-testid={testId}>
-          {items.map((item, i) => (
-            <div key={`${item.label}-${i}`}>
-              {item.section && <p className="menu-heading">{item.section}</p>}
-              <button
-                type="button"
-                className="menu-item menu-item-stack"
-                disabled={item.disabled}
-                onClick={() => {
-                  close()
-                  void item.onSelect()
-                }}
-              >
-                <span>{item.label}</span>
-                {item.hint && <small>{item.hint}</small>}
-              </button>
+        <div role="menu" aria-label={label} data-testid={testId}>
+          {sections(items).map((section, s) => (
+            <div key={`${section.title ?? ''}-${s}`} role="group" aria-label={section.title}>
+              {section.title && (
+                <p className="menu-heading" aria-hidden="true">
+                  {section.title}
+                </p>
+              )}
+              {section.items.map((item, i) => (
+                <button
+                  key={`${item.label}-${i}`}
+                  type="button"
+                  role="menuitem"
+                  className="menu-item menu-item-stack"
+                  disabled={item.disabled}
+                  onClick={() => {
+                    close()
+                    void item.onSelect()
+                  }}
+                >
+                  <span>{item.label}</span>
+                  {item.hint && <small>{item.hint}</small>}
+                </button>
+              ))}
             </div>
           ))}
         </div>

@@ -55,7 +55,13 @@ export function checkFormula(
     throw error
   }
   try {
-    const values = compiled.evaluate({ rowCount: ds.rowCount, time: ds.elapsed, resolve: makeResolver(base) })
+    // The same context as the saved channel (derived.ts): diff, integ, smooth and lag stay inside each time segment.
+    const values = compiled.evaluate({
+      rowCount: ds.rowCount,
+      time: ds.elapsed,
+      resolve: makeResolver(base),
+      segments: ds.segments,
+    })
     return { status: 'ok', values, stats: computeStats(values), refs: compiled.refs }
   } catch (error) {
     const trial = withDerived(ds, [...defsBefore, { id: PREVIEW_ID, name: 'Preview', unit: '', expression }])

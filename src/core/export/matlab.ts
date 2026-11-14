@@ -1,5 +1,5 @@
 // MATLAB script export: a self-contained .m file that re-reads the ORIGINAL X-Plane log and reproduces the test-point
-// statistics, the X–Y figure (means ± σ, per-group fits), the time-history figure and (optionally) the mode fit, writing
+// statistics, the X–Y figure (means ± σ, the app's fits), the time-history figure and (optionally) the mode fit, writing
 // figures and tables to ./out/ — so coursework figures and numbers come from MATLAB (run_all.m), not from the browser.
 // Base MATLAB only (R2021a+, no toolboxes). The reader must accept exactly the rows the app's parser accepts.
 // OWNER: export agent. Public API below is a contract; keep these signatures.
@@ -39,6 +39,12 @@ export interface MatlabExportOptions {
   dataFile?: string
   /** Public URL of the app, quoted in the header comment */
   appUrl?: string
+  /**
+   * The X–Y axis ranges the app showed (views/xy focusedAxes: a few absurd samples, such as CL on the ground, are left
+   * off the axes); null or absent = automatic axes. The script applies them to its axes and, like the app, fits
+   * through the samples inside them only.
+   */
+  xyLimits?: { x: readonly [number, number] | null; y: readonly [number, number] | null } | null
 }
 
 /** The app's 8 categorical colours in the light theme (styles/global.css --series-1..8), in slot order. */
@@ -378,7 +384,8 @@ export function matlabScript(opts: MatlabExportOptions): string {
       title: 'Formula channels',
       lines: [
         "% The app's formula channels, re-computed here from the same columns (translated from the formula",
-        '% language: element-wise operators, t = elapsed time, NaN where a result is not a real number).',
+        '% language: element-wise operators, t = elapsed time, NaN where a result is not a real number; diff, integ,',
+        '% smooth and lag stay inside each segment, never reaching across a sim reset or recording gap).',
         ...formulas,
       ],
     })
@@ -595,7 +602,13 @@ function pointsTable(w: ScriptWriter, ds: Dataset, ws: Workspace): string[] {
     "        T.([tracked{iTracked, 1} '_' statNames{iStat}]) = S(:, iStat);",
     '    end',
     'end',
-    "writetable(T, fullfile(outDir, 'test_points.csv'));",
+    "% For spreadsheets, a name starting with = + - @ (or a tab or carriage return) gets a leading ' so that Excel",
+    "% never runs it as a formula, as in the app's own CSV files. T itself keeps the names as they are.",
+    'csvT = T;',
+    "defuse = @(names) regexprep(names, '^([=+\\-@\\t\\r])', '''$1');",
+    'csvT.Point = defuse(csvT.Point);',
+    'csvT.Group = defuse(csvT.Group);',
+    "writetable(csvT, fullfile(outDir, 'test_points.csv'));",
     "fprintf('\\nTest points -> %s\\n', fullfile(outDir, 'test_points.csv'));",
     'for iTracked = 1:size(tracked, 1)',
     "    fprintf('  %-28s %s\\n', tracked{iTracked, 1}, tracked{iTracked, 3});",
@@ -623,7 +636,9 @@ function xySection(w: ScriptWriter, ds: Dataset, ws: Workspace, opts: MatlabExpo
   const degree = { none: 0, linear: 1, poly2: 2, poly3: 3 }[config.fit]
   const xLabel = config.xLabel.trim() || titleOf(ds, config.x)
   const yLabel = config.yLabel.trim() || sharedLabel(ys.map((y) => y.ch))
-  for (const helper of ['xppFigure', 'xppExport', 'xppSamples', 'xppPolyFit', 'xppStats']) w.helpers.add(helper)
+  for (const helper of ['xppFigure', 'xppExport', 'xppSamples', 'xppPolyFit', 'xppStats', 'xppOnAxes', 'xppDrawFit']) {
+    w.helpers.add(helper)
+  }
 
   // Defined whatever the source, so xy.source can be switched in MATLAB.
   const viewLine = viewRows
@@ -654,11 +669,25 @@ function xySection(w: ScriptWriter, ds: Dataset, ws: Workspace, opts: MatlabExpo
     setting(`xy.colorBy = '${config.colorBy}';`, "colour: 'series' (per y channel), 'group' (per test-point group) or 'time'"),
     setting(`xy.showSamples = ${config.showSamples};`, 'the raw samples'),
     setting(`xy.showMeans = ${config.showMeans};`, 'mean +/- 1 standard deviation of each visible test point'),
-    setting(`xy.fitDegree = ${degree};`, 'polynomial fit: 0 none, 1 linear, 2 quadratic, 3 cubic (per group with points)'),
+    setting(
+      `xy.fitDegree = ${degree};`,
+      'polynomial fit: 0 none, 1 linear, 2 quadratic, 3 cubic (one per colour: per group or per y channel)',
+    ),
     setting(`xy.fitTarget = '${config.fitTarget}';`, "fit through the test-point 'means' or the raw 'samples'"),
+    setting(`xy.xLimits = ${limitsLiteral(opts.xyLimits?.x)};`, 'x axis range the app showed ([] = automatic)'),
+    setting(
+      `xy.yLimits = ${limitsLiteral(opts.xyLimits?.y)};`,
+      'y axis range; a fit through the samples uses those inside both',
+    ),
     ...XY_CODE,
   ]
   return { lines, figure: true }
+}
+
+/** An axis range as a MATLAB row [lo hi], or [] (automatic) when there is none. */
+function limitsLiteral(range: readonly [number, number] | null | undefined): string {
+  if (!range || !Number.isFinite(range[0]) || !Number.isFinite(range[1]) || !(range[1] > range[0])) return '[]'
+  return `[${num(range[0])} ${num(range[1])}]`
 }
 
 /** Per group, in the order pointsDefinition writes groupName: plotted by the X–Y figure (XYConfig.groups). */
@@ -679,34 +708,36 @@ const XY_CODE = [
   "markers = 'osd^v<>p';   % one marker shape per y channel",
   'fitLog = {};             % fit equations, printed below',
   "if strcmp(xy.source, 'points')",
-  '    sampleInLegend = false(1, numel(xy.y));',
+  "    % As in the app, one colour (and one fit) per plotted group when colouring by group; otherwise one per y channel",
+  "    % with the points of every plotted group pooled.",
+  '    plotted = reshape(find(xy.useGroup), 1, []);',
+  "    if strcmp(xy.colorBy, 'group')",
+  '        units = num2cell(plotted);',
+  '    else',
+  '        units = {plotted};',
+  '    end',
   '    for iY = 1:numel(xy.y)',
-  '        for iGroup = 1:numel(groupName)',
-  '            if ~xy.useGroup(iGroup)',
-  '                continue',
-  '            end',
-  '            members = find(pointGroup == iGroup & ~pointHidden);',
+  '        for iUnit = 1:numel(units)',
+  '            members = find(ismember(pointGroup, units{iUnit}) & ~pointHidden);',
   '            members = members(~cellfun(@isempty, pointRows(members)));',
   '            if isempty(members)',
   '                continue',
   '            end',
-  '            color = seriesColors(groupSlot(iGroup), :);',
-  '            label = groupName{iGroup};',
-  '            if numel(xy.y) > 1',
-  "                label = sprintf('%s - %s', groupName{iGroup}, xy.yName{iY});",
-  '            end',
-  '            rows = vertcat(pointRows{members});',
-  '            if xy.showSamples',
-  "                if strcmp(xy.colorBy, 'series')",
-  '                    % Colour per y channel: one legend entry per channel.',
-  '                    xppSamples(ax, xy.x, xy.y{iY}, rows, xy.style, xy.colorBy, seriesColors(iY, :), el, ...',
-  '                        xy.yName{iY}, ~sampleInLegend(iY));',
-  '                    sampleInLegend(iY) = true;',
-  '                else',
-  '                    % Colour per group (or by time): the mean markers carry the legend unless they are hidden.',
-  '                    xppSamples(ax, xy.x, xy.y{iY}, rows, xy.style, xy.colorBy, color, el, label, ...',
-  "                        ~xy.showMeans && strcmp(xy.colorBy, 'group'));",
+  "            if strcmp(xy.colorBy, 'group')",
+  '                color = seriesColors(groupSlot(units{iUnit}), :);',
+  '                label = groupName{units{iUnit}};',
+  '                if numel(xy.y) > 1',
+  "                    label = sprintf('%s - %s', label, xy.yName{iY});",
   '                end',
+  '            else',
+  '                color = seriesColors(iY, :);',
+  '                label = xy.yName{iY};',
+  '            end',
+  '            rows = unique(vertcat(pointRows{members}));   % a row two points share counts once, as in the app',
+  '            if xy.showSamples',
+  '                % Coloured by series the samples carry the legend; otherwise the mean markers do, unless hidden.',
+  '                xppSamples(ax, xy.x, xy.y{iY}, rows, xy.style, xy.colorBy, color, el, label, ...',
+  "                    strcmp(xy.colorBy, 'series') || (~xy.showMeans && strcmp(xy.colorBy, 'group')));",
   '            end',
   '            M = NaN(numel(members), 4);   % x mean, x std, y mean, y std',
   '            for iMember = 1:numel(members)',
@@ -722,15 +753,12 @@ const XY_CODE = [
   '            if xy.fitDegree > 0',
   "                if strcmp(xy.fitTarget, 'means')",
   '                    [xs, ys, equation] = xppPolyFit(M(:, 1), M(:, 3), xy.fitDegree);',
+  '                    outside = 0;',
   '                else',
-  '                    [xs, ys, equation] = xppPolyFit(xy.x(rows), xy.y{iY}(rows), xy.fitDegree);',
+  '                    [fitRows, outside] = xppOnAxes(xy.x, xy.y{iY}, rows, xy.xLimits, xy.yLimits);',
+  '                    [xs, ys, equation] = xppPolyFit(xy.x(fitRows), xy.y{iY}(fitRows), xy.fitDegree);',
   '                end',
-  '                if isempty(xs)',
-  "                    fitLog{end + 1} = sprintf('%s: not enough distinct x values for the fit', label); %#ok<SAGROW>",
-  '                else',
-  "                    plot(ax, xs, ys, '-', 'Color', color, 'LineWidth', 1.5, 'DisplayName', [label ': ' equation]);",
-  "                    fitLog{end + 1} = [label ': ' equation]; %#ok<SAGROW>",
-  '                end',
+  '                fitLog = xppDrawFit(ax, xs, ys, equation, label, color, outside, fitLog);',
   '            end',
   '        end',
   '    end',
@@ -746,16 +774,18 @@ const XY_CODE = [
   "                ~strcmp(xy.colorBy, 'time'));",
   '        end',
   '        if xy.fitDegree > 0',
-  '            [xs, ys, equation] = xppPolyFit(xy.x(rows), xy.y{iY}(rows), xy.fitDegree);',
-  '            if isempty(xs)',
-  "                fitLog{end + 1} = sprintf('%s: not enough distinct x values for the fit', xy.yName{iY}); %#ok<SAGROW>",
-  '            else',
-  "                plot(ax, xs, ys, '-', 'Color', 0.6 * color, 'LineWidth', 1.5, ...",
-  "                    'DisplayName', [xy.yName{iY} ' fit: ' equation]);",
-  "                fitLog{end + 1} = [xy.yName{iY} ': ' equation]; %#ok<SAGROW>",
-  '            end',
+  '            [fitRows, outside] = xppOnAxes(xy.x, xy.y{iY}, rows, xy.xLimits, xy.yLimits);',
+  '            [xs, ys, equation] = xppPolyFit(xy.x(fitRows), xy.y{iY}(fitRows), xy.fitDegree);',
+  '            fitLog = xppDrawFit(ax, xs, ys, equation, xy.yName{iY}, 0.6 * color, outside, fitLog);',
   '        end',
   '    end',
+  'end',
+  '% The axis ranges the app showed: it leaves a few absurd samples (CL on the ground) off the axes.',
+  'if ~isempty(xy.xLimits)',
+  '    xlim(ax, xy.xLimits);',
+  'end',
+  'if ~isempty(xy.yLimits)',
+  '    ylim(ax, xy.yLimits);',
   'end',
   "if strcmp(xy.colorBy, 'time') && xy.showSamples",
   '    timeBar = colorbar(ax);',

@@ -60,10 +60,19 @@ const MEAN_RING = 4
 const ERROR_CAP = 4
 /** Above this many samples in a series the sample dots shrink from 4 to 3 px. */
 const SMALL_DOTS_ABOVE = 5000
+/**
+ * A series with at least this many samples is drawn in ECharts' large (batched) mode: one path per scatter instead
+ * of one element per sample. Decided on the whole series, also when colour by time splits it into bands.
+ */
+export const LARGE_SCATTER_FROM = 2000
 
-/** Sequential single-hue blue ramps for colour by time (early → late): light/paper, and dark (bright = late). */
+/**
+ * Sequential single-hue blue ramps for colour by time (early → late): light/paper, and dark (bright = late). Each
+ * end keeps at least 2:1 contrast with its chart surface (dark: #1c5cab is 2.78:1 on --chart-surface #0d1421, and
+ * still 2.27:1 on a lighter #22272b), so the earliest samples stay visible.
+ */
 export const TIME_RAMP_LIGHT = ['#86b6ef', '#5598e7', '#2a78d6', '#1c5cab', '#0d366b']
-export const TIME_RAMP_DARK = ['#184f95', '#256abf', '#3987e5', '#6da7ec', '#b7d3f6']
+export const TIME_RAMP_DARK = ['#1c5cab', '#2a78d6', '#5598e7', '#86b6ef', '#cde2fb']
 
 export function timeRamp(theme: ChartTheme): string[] {
   return theme.mode === 'dark' ? TIME_RAMP_DARK : TIME_RAMP_LIGHT
@@ -255,8 +264,10 @@ export function xyChartOption(input: XYChartInput, theme: ChartTheme): EChartsOp
         encode: { x: 0, y: 1 },
         symbol: SYMBOLS[s.shape],
         symbolSize: s.count > SMALL_DOTS_ABOVE ? 3 : 4,
+        // ECharts compares the threshold with each scatter's own count: a large series split into time bands of
+        // fewer samples each would otherwise draw one element per sample (slow zoom and pan on a real log).
         large: true,
-        largeThreshold: 2000,
+        largeThreshold: s.count >= LARGE_SCATTER_FROM ? 0 : LARGE_SCATTER_FROM,
         progressive: 20000,
         progressiveThreshold: 60000,
         silent: true,

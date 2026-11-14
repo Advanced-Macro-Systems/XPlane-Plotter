@@ -6,10 +6,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Read-only by default. Only the deploy job, which runs no npm code, may publish to Pages; the build job runs
+# third-party dependency code (eslint, vitest, vite) and gets no write access or OIDC token.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -19,9 +19,24 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      # Actions are pinned to commit SHAs (tags can be moved); .github/dependabot.yml proposes updates.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing here pushes: keep the token out of .git/config, where any later step could read it.
+          persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - name: No flight data in the repo
+        # Logs, exports (CSV, MATLAB scripts, out/) and session files hold values measured in someone's flights.
+        run: |
+          private=$(git ls-files | grep -iE '\.(txt|csv|tsv|dat)$|(^|/)xpp_[^/]*\.m$|\.xpp-session\.json$|_session\.json$|(^|/)(out|samples)/' || true)
+          large=$(git ls-files -z | xargs -0 -r stat -c '%s %n' | awk '$1 > 1048576 { sub(/^[0-9]+ /, ""); print }')
+          if [ -n "$private$large" ]; then
+            echo "::error::Flight logs, exports or session files (or files over 1 MB) are tracked. Remove them:"
+            printf '%s\n' "$private" "$large" | sed '/^$/d'
+            exit 1
+          fi
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -33,25 +48,25 @@ jobs:
           npm run lint
           npm test
 
-      - id: pages
-        uses: actions/configure-pages@v6
-
       - name: Build
         run: npm run build
         env:
           # The site is served from https://<owner>.github.io/<repo>/
           BASE_PATH: /${{ github.event.repository.name }}/
 
-      - uses: actions/upload-pages-artifact@v5
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: dist
 
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

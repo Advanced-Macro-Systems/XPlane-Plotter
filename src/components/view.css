@@ -230,11 +230,62 @@
   }
 }
 
+/* The sidebar's content lays out as its own children (ViewSidebar wraps it only to fold it on a phone). */
+.view-sidebar-content {
+  display: contents;
+}
+.view-sidebar-content[hidden] {
+  display: none;
+}
+/* Stays at the top of the opened sidebar, so it can be folded again from anywhere in it. */
+.view-sidebar-fold {
+  position: sticky;
+  top: -8px;
+  z-index: 2;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.view-sidebar-fold:hover {
+  background: var(--surface-hover);
+}
+.view-sidebar-fold-icon {
+  flex: none;
+  color: var(--text-subtle);
+  transition: transform 120ms ease;
+}
+.view-sidebar-fold[aria-expanded='true'] .view-sidebar-fold-icon {
+  transform: rotate(180deg);
+}
+
 @media (max-width: 560px) {
   .view-toolbar {
     padding: 8px 12px;
   }
   .view-body {
     padding: 12px 12px 24px;
+  }
+  /* Folded (the default), the settings are one row and the plot gets the screen; opened, they take up to 60 %. */
+  .view-sidebar {
+    gap: 12px;
+    max-height: 60dvh;
+    padding: 8px 12px;
+  }
+  .view-sidebar[data-folded] {
+    overflow: visible;
   }
 }

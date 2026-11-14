@@ -136,7 +136,9 @@ export function baseOption(theme: ChartTheme): EChartsOption {
     textStyle: { fontFamily: theme.font, fontSize: theme.fontSize, color: theme.text },
     // <EChart> hands its ariaLabel to the aria component as the description. Decal textures stay opt-in.
     aria: { enabled: true, decal: { show: false } },
-    axisPointer: { lineStyle: pointerLine, label: pointerLabel },
+    // The crosshair gets its own canvas layer (zlevel 1) and does not highlight the hovered samples, so a mouse move
+    // repaints only that layer, not every linked chart's whole series layer (tens of thousands of samples).
+    axisPointer: { lineStyle: pointerLine, label: pointerLabel, zlevel: 1, triggerEmphasis: false },
     tooltip: {
       confine: true,
       // Track the crosshair without easing: a lagging tooltip shows the wrong sample.

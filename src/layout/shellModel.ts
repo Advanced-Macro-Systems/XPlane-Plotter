@@ -229,3 +229,31 @@ export function modeRowsFor(
 export function fileStem(name: string): string {
   return name.replace(/\.[A-Za-z0-9]{1,5}$/, '') || name
 }
+
+/** A MATLAB script of one tab's plot: the time histories, the X–Y plot (with the test-point table), the mode fit. */
+export type MatlabPart = 'time' | 'xy' | 'modes'
+
+/** What each MATLAB script holds (null = the whole workspace), for the message after saving it. */
+const MATLAB_CONTENTS: Readonly<Record<MatlabPart | 'all', string>> = {
+  all: 'test-point table, X–Y plot, time histories and mode fit',
+  time: 'time histories',
+  xy: 'test-point table and X–Y plot',
+  modes: 'mode fit',
+}
+
+/**
+ * The file name of a one-plot MATLAB script, from the whole-workspace one: "xpp_Data_run1.m" + 'xy' ->
+ * "xpp_Data_run1_xy.m", still at most 63 characters before ".m" so MATLAB can run it by name. The whole-workspace
+ * script keeps the plain name: the one run_all.m and the help refer to.
+ */
+export function matlabPartName(wholeName: string, part: MatlabPart | null): string {
+  if (!part) return wholeName
+  const suffix = `_${part}`
+  const stem = wholeName.replace(/\.m$/, '')
+  return `${stem.slice(0, 63 - suffix.length).replace(/_+$/, '')}${suffix}.m`
+}
+
+/** The one message after any MATLAB export, whichever tab it came from. */
+export function matlabSavedText(name: string, part: MatlabPart | null, logName: string): string {
+  return `Saved ${name} (${MATLAB_CONTENTS[part ?? 'all']}). Put it next to ${logName} and run it in MATLAB: figures and tables go to ./out/.`
+}

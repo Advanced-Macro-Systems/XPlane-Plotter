@@ -251,6 +251,56 @@ describe('compileExpression — constants and functions', () => {
     expect(Array.from(compileExpression('x - lag(x, 1)').evaluate(ctx))).toEqual([NaN, 1, 1, 1])
   })
 
+  describe('never reaches across a sim reset or recording gap (segments)', () => {
+    // Two segments of 5 rows at 0.1 s: the second starts at row 5. Elapsed time advances by one step across the gap
+    // (as Dataset.elapsed does) while the value jumps from about 0 to about 10 000 (ground to cruise after a reload).
+    const time = Array.from({ length: 10 }, (_, i) => i * 0.1)
+    const x = time.map((v, i) => (i < 5 ? 2 * v : 10_000 + 2 * v))
+    const segments = [
+      { start: 0, end: 5 },
+      { start: 5, end: 10 },
+    ]
+    const run = (source: string, values: number[] = x) =>
+      Array.from(compileExpression(source).evaluate({ ...context({ x: values }, time), segments }))
+
+    it('diff: one-sided at the segment edges, so the jump never becomes a rate', () => {
+      const out = run('diff(x)')
+      // Without segments the rows either side of the gap read about 10 000 / 0.2 s = 5e4 per second.
+      for (const v of out) expect(v).toBeCloseTo(2, 9)
+      const unaware = Array.from(compileExpression('diff(x)').evaluate(context({ x }, time)))
+      expect(unaware[4]).toBeGreaterThan(1e4)
+    })
+
+    it('integ: adds nothing across the gap', () => {
+      const out = run('integ(1)')
+      expect(out[4]).toBeCloseTo(0.4, 12)
+      expect(out[5]).toBeCloseTo(0.4, 12)
+      expect(out[9]).toBeCloseTo(0.8, 12)
+    })
+
+    it('smooth: the window stays inside the segment', () => {
+      const out = run('smooth(x, 1)')
+      // Row 4's ±0.5 s window would otherwise take in rows 5..8 of the other segment.
+      expect(out[4]).toBeCloseTo((0 + 0.2 + 0.4 + 0.6 + 0.8) / 5, 9)
+      expect(out[5]).toBeCloseTo(10_000 + (1 + 1.2 + 1.4 + 1.6 + 1.8) / 5, 9)
+    })
+
+    it('lag: NaN across the gap', () => {
+      const out = run('lag(x, 1)')
+      expect(out[5]).toBeNaN()
+      expect(out[6]).toBeCloseTo(x[5], 12)
+      expect(run('lag(x, -1)')[4]).toBeNaN()
+    })
+
+    it('one segment changes nothing', () => {
+      const single = compileExpression('diff(x)').evaluate({
+        ...context({ x: [0, 1, 2] }),
+        segments: [{ start: 0, end: 3 }],
+      })
+      expect(Array.from(single)).toEqual([1, 1, 1])
+    })
+  })
+
   it('requires constant window and shift arguments', () => {
     const ctx = context({ x: [1, 2, 3] })
     expect(errorOf(() => compileExpression('smooth(x, x)').evaluate(ctx)).position).toBe(10)

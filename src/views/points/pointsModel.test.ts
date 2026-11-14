@@ -4,13 +4,17 @@ import {
   buildPointRows,
   driftSummary,
   driftText,
+  fileSpread,
   formatMeanSd,
   framedRange,
+  isDirectionChannel,
   pointCounts,
   reinsertPoint,
   sortPointRows,
   steadiness,
   suggestPointName,
+  unwrapDegrees,
+  windowStats,
 } from './pointsModel'
 
 const stats = (mean: number, std: number, n = 100) => ({ n, mean, std, min: mean, max: mean, rms: mean })
@@ -59,6 +63,71 @@ describe('steadiness', () => {
     expect(driftText(45, 'ft')).toBe('drifting +45 ft/min')
     expect(driftText(0.5, '')).toBe('drifting +0.5 per min')
     expect(driftText(NaN, 'kt')).toBe('')
+  })
+})
+
+describe('steadiness against a robust file spread', () => {
+  // 1000 in-flight samples of 0.5 ± 0.02 and 10 absurd ones at 1e8 (a coefficient on the ground at zero airspeed).
+  const values = Float64Array.from({ length: 1010 }, (_, i) => (i < 1000 ? 0.5 + 0.02 * Math.sin(i * 0.7) : 1e8))
+  const cl = channel('CL', Array.from(values), 'CL', '')
+
+  it('is not inflated by a few absurd samples', () => {
+    expect(cl.stats.std).toBeGreaterThan(1e6)
+    expect(fileSpread(cl)).toBeGreaterThan(0.005)
+    expect(fileSpread(cl)).toBeLessThan(0.05)
+    // Without the values (or with a constant middle half) it is σ.
+    expect(fileSpread({ stats: { std: 3 } })).toBe(3)
+    expect(fileSpread(channel('flag', [0, 0, 0, 0, 0, 0, 1], 'Flag', ''))).toBeCloseTo(0.378, 3)
+  })
+
+  it('flags a window drifting 0.1/min with σ 0.02 over a minute', () => {
+    const steady = steadiness(stats(0.5, 0.02), 0.1, 60, cl)
+    expect(steady.flagged).toBe(true)
+    expect(steady.limit).toBeCloseTo(0.04)
+    // With the plain whole-file σ as the yardstick the same drift would hide under a floor of ~10^5.
+    expect(steadiness(stats(0.5, 0.02), 0.1, 60, { meta: { unit: '' }, stats: cl.stats }).flagged).toBe(false)
+  })
+
+  it('reads units as plain keys (a unit called "constructor" has no floor)', () => {
+    const odd = { meta: { unit: 'constructor' }, stats: { std: 10 } }
+    expect(steadiness(stats(175, 0.5), 60, 50, odd)).toMatchObject({ flagged: true })
+    expect(steadiness(stats(175, 0.5), 60, 50, { meta: { unit: 'toString' }, stats: { std: 10 } }).flagged).toBe(true)
+  })
+})
+
+describe('direction channels (0–360°)', () => {
+  const t = range(5) // 0..4 s
+  const heading = { ...channel('hding,_true', [10, 5, 0, 355, 350], 'ψ true', 'deg'), meta: { label: 'True heading', short: 'ψ true', unit: 'deg', quantity: 'angle', group: 'x', known: true, sign: '0–360° clockwise from true north' } }
+
+  it('knows which channels wrap at north', () => {
+    expect(isDirectionChannel(heading)).toBe(true)
+    expect(isDirectionChannel(channel('pitch,__deg', [0], 'θ', 'deg'))).toBe(false)
+    expect(isDirectionChannel(channel('_wind,__dir', [0], 'Wind dir', 'deg'))).toBe(true)
+    expect(isDirectionChannel(channel('Heading (deg)', [0], 'Heading', 'deg'))).toBe(true)
+    expect(isDirectionChannel(channel('hding,_true', [0], 'ψ', 'rad'))).toBe(false)
+  })
+
+  it('unwraps jumps of more than 180°', () => {
+    expect(Array.from(unwrapDegrees([350, 355, 2, NaN, 8, 359], 0, 6))).toEqual([350, 355, 362, NaN, 368, 359])
+    expect(Array.from(unwrapDegrees([10, 5, 0, 355, 350], 0, 5))).toEqual([10, 5, 0, -5, -10])
+  })
+
+  it('averages a turn through north as a turn: 10° → 350° over 4 s', () => {
+    const { stats, drift } = windowStats(heading, t, 0, 5)
+    expect(stats.mean).toBeCloseTo(0, 6)
+    expect(stats.std).toBeCloseTo(7.9, 1)
+    expect(drift).toBeCloseTo(-300)
+    // Plain channels are untouched.
+    const plain = windowStats(channel('x', [10, 5, 0, 355, 350], 'X', 'deg'), t, 0, 5)
+    expect(plain.stats.mean).toBeCloseTo(144)
+  })
+
+  it('reports the mean in 0–360°', () => {
+    const north = { ...heading, values: Float64Array.from([350, 355, 2, 6, 10]) }
+    const { stats } = windowStats(north, t, 0, 5)
+    expect(stats.mean).toBeCloseTo((350 + 355 + 362 + 366 + 370) / 5 - 360)
+    // min and max move with the mean: −10 … 10 around 0.6°
+    expect([stats.min, stats.max]).toEqual([-10, 10])
   })
 })
 

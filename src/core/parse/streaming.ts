@@ -7,10 +7,12 @@
 //  1. Lines. The text is split at "\n"; one trailing "\r" per line is removed; a UTF-8 BOM at the very start is
 //     ignored. "Blank" characters are space, tab and NUL (a log cut off by a power loss can end in NUL bytes).
 //     Blank lines (empty, or only blank characters) are ignored everywhere and never counted.
-//  2. Header. The first non-blank line that does not start with "#" is the header. If it contains "|", the file is
-//     an X-Plane table (no quoting). Otherwise it is CSV-like with RFC 4180 double quotes (a quoted cell may contain
-//     the delimiter, "" for a quote, and line breaks), and the delimiter is TAB, else ";", else "," — the first of
-//     these that occurs in the header outside quotes. With ";" a decimal comma is accepted in numbers ("1,25").
+//  2. Header. The first non-blank line that does not start with "#" is the header. Characters between double quotes
+//     do not count in this rule (an unclosed quote runs to the end of the line). If the header has at least two "|",
+//     or ends with "|" (blanks aside), the file is an X-Plane table (no quoting). Otherwise it is CSV-like with
+//     RFC 4180 double quotes (a quoted cell may contain the delimiter, "" for a quote, and line breaks), and the
+//     delimiter is TAB if the header has one; else whichever of ";" and "," it has more of (";" on a tie, "," when
+//     it has neither). With ";" a decimal comma is accepted in numbers ("1,25").
 //  3. Cells. A line is split at every delimiter and each cell is trimmed of blanks. If the header's last cell is
 //     empty (X-Plane ends every line with "| "), that trailing empty cell is dropped — from the header and from
 //     every data line that ends with a delimiter. X-Plane lines always drop it.
@@ -21,9 +23,13 @@
 //     Infinite values are stored as NaN.
 //  5. Header-like lines are lines with at least one non-empty cell where no cell is a number or a nan/inf spelling.
 //     A header-like line identical to the header (same trimmed cells) is skipped and not counted: X-Plane repeats
-//     the header when the output restarts. In an X-Plane file a DIFFERENT header-like line means the Data Output
-//     selection changed mid-recording: reading stops there with a warning (only the first table is read) — unless
-//     no row has been accepted yet, in which case the new header replaces the old one.
+//     the header when the output restarts. In an X-Plane file a DIFFERENT header-like line that looks like a header
+//     (it contains "|", and more than half of its non-empty cells are shaped like X-Plane column names: no blank or
+//     comma, then a comma, then no blank or comma, as in "_Vind,_kias") means the Data Output selection changed
+//     mid-recording: reading stops there with a warning (only the first table is read) — unless no row has been
+//     accepted yet, in which case the new header replaces the old one. Any other header-like line of an X-Plane file
+//     (a note typed into the log, garbled bytes) is never a data row: it is skipped and counted, like a bad row (or
+//     is the incomplete last line of rule 7).
 //  6. A data line is ACCEPTED iff it has exactly as many cells as the header (CSV-like files: and at least one cell
 //     is a number). Any other data line is skipped and counted in `skippedRows`, EXCEPT rule 7.
 //  7. The last line of the file, when it is not terminated by "\n", is incomplete if it has fewer cells than the
@@ -101,6 +107,24 @@ function trimCell(cell: string): string {
 /** Header cells are compared and displayed with runs of whitespace (including line breaks) collapsed. */
 function normalizeCell(cell: string): string {
   return cell.replace(/[\s\0]+/g, ' ').trim()
+}
+
+/** An X-Plane column name (a normalised cell): no blank or comma, a comma, no blank or comma ("_Vind,_kias"). */
+const XPLANE_NAME = /^[^, ]+,[^, ]+/
+
+/**
+ * Rule 5: more than half of the non-empty (normalised) cells are shaped like X-Plane column names, as in a new header
+ * after the Data Output selection changed; a note typed into the log or a line of garbled bytes is not.
+ */
+function looksLikeXPlaneHeader(cells: readonly string[]): boolean {
+  let filled = 0
+  let names = 0
+  for (const cell of cells) {
+    if (!cell) continue
+    filled += 1
+    if (XPLANE_NAME.test(cell)) names += 1
+  }
+  return 2 * names > filled
 }
 
 function sameCells(a: readonly string[], b: readonly string[]): boolean {
@@ -453,26 +477,37 @@ class TableParser implements StreamingParser {
     if (this.headerless) this.handleCells(cells, terminated)
   }
 
+  /** Rule 2. Only characters outside double quotes count: "Mode A|B" or "lb/h; total" inside a quoted name do not. */
   private chooseFormat(header: string): void {
-    if (header.includes('|')) {
+    let pipes = 0
+    let tabs = 0
+    let semicolons = 0
+    let commas = 0
+    let quoted = false
+    // The last character that is not blank (a quoted stretch counts as its quote characters).
+    let last = 0
+    for (let i = 0; i < header.length; i += 1) {
+      const c = header.charCodeAt(i)
+      if (c === QUOTE) quoted = !quoted
+      else if (quoted) continue
+      else if (c === PIPE) pipes += 1
+      else if (c === TAB) tabs += 1
+      else if (c === SEMICOLON) semicolons += 1
+      else if (c === COMMA) commas += 1
+      if (!isBlank(c)) last = c
+    }
+    // X-Plane writes "name | name | ... | ": a single "|" inside a CSV column name does not make a pipe table.
+    if (pipes >= 2 || last === PIPE) {
       this.format = 'xplane'
       this.delimiter = PIPE
       this.quoting = false
       this.decimalComma = false
       this.dropTrailingEmpty = true
     } else {
-      // "," is the default; TAB or ";" in the header (outside quotes) wins, since a ";" file may use "," in numbers.
-      let tabs = 0
-      let semicolons = 0
-      let quoted = false
-      for (let i = 0; i < header.length; i += 1) {
-        const c = header.charCodeAt(i)
-        if (c === QUOTE) quoted = !quoted
-        else if (!quoted && c === TAB) tabs += 1
-        else if (!quoted && c === SEMICOLON) semicolons += 1
-      }
+      // A TAB is never part of a column name; between ";" and "," (either may sit inside a name, and a ";" file may
+      // use "," in numbers) the more frequent one separates the cells.
       this.format = 'csv'
-      this.delimiter = tabs > 0 ? TAB : semicolons > 0 ? SEMICOLON : COMMA
+      this.delimiter = tabs > 0 ? TAB : semicolons > 0 && semicolons >= commas ? SEMICOLON : COMMA
       this.quoting = true
       this.decimalComma = this.delimiter === SEMICOLON
       this.dropTrailingEmpty = false
@@ -533,7 +568,7 @@ class TableParser implements StreamingParser {
     if (this.rowCount === this.capacity) this.grow()
     this.scanLine(text, start, end)
     if (this.rowTexts > 0 && this.rowNumbers === 0 && this.rowMissing === 0) {
-      if (this.headerLikeRow(text.slice(start, end).split(this.delimiterChar))) return
+      if (this.headerLikeRow(text.slice(start, end).split(this.delimiterChar), terminated)) return
     }
     this.decideRow(terminated)
   }
@@ -560,7 +595,7 @@ class TableParser implements StreamingParser {
     this.rowTexts = texts
     this.rowMissing = missing
     this.rowEndsWithDelimiter = true
-    if (texts > 0 && numbers === 0 && missing === 0 && this.headerLikeRow(cells)) return
+    if (texts > 0 && numbers === 0 && missing === 0 && this.headerLikeRow(cells, terminated)) return
     this.decideRow(terminated)
   }
 
@@ -633,8 +668,11 @@ class TableParser implements StreamingParser {
     this.rowEndsWithDelimiter = endsWithDelimiter
   }
 
-  /** Rule 5. Returns true when the line was consumed (repeated header, new header, or end of the first table). */
-  private headerLikeRow(rawCells: readonly string[]): boolean {
+  /**
+   * Rule 5. Returns true when the line was consumed (repeated header, new header, end of the first table, or a stray
+   * line of text in an X-Plane log).
+   */
+  private headerLikeRow(rawCells: readonly string[], terminated: boolean): boolean {
     const cells = rawCells.map(normalizeCell)
     if (this.dropTrailingEmpty && cells.length > 1 && cells[cells.length - 1] === '') cells.pop()
     if (sameCells(cells, this.headerCells)) {
@@ -642,6 +680,16 @@ class TableParser implements StreamingParser {
       return true
     }
     if (this.format !== 'xplane') return false
+    if (!(rawCells.length > 1 && looksLikeXPlaneHeader(cells))) {
+      // A note typed into the log, or garbled bytes: not a new table, and never a data row (it holds no number).
+      if (!terminated && (this.rowCells < this.ncols || !this.rowEndsWithDelimiter)) {
+        this.incompleteLastLine = true
+      } else {
+        this.skippedRows += 1
+        if (this.firstBadCells < 0) this.firstBadCells = this.rowCells
+      }
+      return true
+    }
     if (this.rowCount === 0) {
       this.notes.push('The column header changed before any data was recorded; the later header was used.')
       this.setHeader(cells, cells.join(' | ').length)

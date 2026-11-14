@@ -17,8 +17,8 @@ import {
 } from '@primer/octicons-react'
 import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { formatNumber } from '../../charts/format'
 import { ExportMenu, type ExportItem } from '../../components/ExportMenu'
+import { useSettled } from '../../components/hooks'
 import { Sparkline } from '../../components/Sparkline'
 import { availablePresets, type DerivedPreset } from '../../core/analysis/derived'
 import { channelTitle } from '../../core/channels'
@@ -53,6 +53,8 @@ import {
   groupOptions,
   nextSort,
   sortRows,
+  statText,
+  statTitle,
   type ChannelFilter,
   type ChannelRow,
   type SortKey,
@@ -126,6 +128,9 @@ function ChannelsWorkspace({ ds, ws }: { ds: Dataset; ws: Workspace }) {
     [rows, query, group, hideConstant, onlyUnknown, sort],
   )
   const filtered = shown.length !== rows.length
+  // The counts describe the rows shown; spoken once typing pauses, not on every key.
+  const shownText = useMemo(() => countsText(channelCounts(shown), rows.length), [shown, rows.length])
+  const spokenText = useSettled(shownText, 700)
   const patch = (next: Partial<ChannelFilter>) => setFilter((f) => ({ ...f, ...next }))
 
   const openMenu = useCallback((id: string, anchor: HTMLElement) => {
@@ -226,8 +231,11 @@ function ChannelsWorkspace({ ds, ws }: { ds: Dataset; ws: Workspace }) {
           Only unknown
         </label>
         <span className="view-toolbar-spacer" />
-        <span className="ch-counts num" role="status">
-          {countsText(counts, shown.length)}
+        <span className="ch-counts num" aria-hidden="true">
+          {shownText}
+        </span>
+        <span className="sr-only" role="status">
+          {spokenText}
         </span>
         <ExportMenu items={exportItems} label="Export table" />
       </div>
@@ -360,7 +368,6 @@ function SortHeader({ column, sort, onSort }: { column: Column; sort: SortState;
   )
 }
 
-const stat = (value: number) => formatNumber(value, 5)
 
 const ChannelTableRow = memo(function ChannelTableRow({
   row,
@@ -399,10 +406,18 @@ const ChannelTableRow = memo(function ChannelTableRow({
         <code className="ch-token">{ch.id}</code>
       </td>
       <td className="ch-c-unit ch-unit">{meta.unit}</td>
-      <td className="num">{stat(stats.min)}</td>
-      <td className="num">{stat(stats.mean)}</td>
-      <td className="num">{stat(stats.max)}</td>
-      <td className="num">{stat(stats.std)}</td>
+      <td className="num" title={statTitle(stats.min)}>
+        {statText(stats.min)}
+      </td>
+      <td className="num" title={statTitle(stats.mean)}>
+        {statText(stats.mean)}
+      </td>
+      <td className="num" title={statTitle(stats.max)}>
+        {statText(stats.max)}
+      </td>
+      <td className="num" title={statTitle(stats.std)}>
+        {statText(stats.std)}
+      </td>
       <td
         className={`num${partial ? ' ch-partial' : ''}`}
         title={stats.finite < rowCount ? `${count(stats.finite)} of ${count(rowCount)} rows have a value` : 'Every row has a value'}

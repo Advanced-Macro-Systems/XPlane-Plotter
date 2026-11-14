@@ -3,14 +3,14 @@
 
 import { BookmarkIcon, PulseIcon, XIcon, ZoomInIcon } from '@primer/octicons-react'
 import { useMemo, useSyncExternalStore } from 'react'
-import { useChannels } from '../../components/hooks'
+import { rangeText, useChannels } from '../../components/hooks'
 import { formatDuration } from '../../core/time'
 import type { Dataset, RowRange, TimeAxis, Workspace } from '../../core/types'
 import { setModes, setSelection, setTab } from '../../store/app'
 import { statChannelIds } from './panelEdit'
 import type { PointerMode } from './TimePanelCard'
 import type { TimeController } from './timeController'
-import { formatTimeRange, isWholeWindow, selectionSummary, steadyStats, windowToRows, type XFrame } from './timeMath'
+import { isWholeWindow, selectionSummary, steadyStats, windowToRows, type XFrame } from './timeMath'
 
 const STAT_CHANNELS = 4
 
@@ -95,7 +95,10 @@ export function SelectionBar({ ds, ws, axis, selection, activePanelId, controlle
   )
 }
 
-/** What the pointer does in this mode, and the range the panels show. */
+/**
+ * What the pointer does in this mode, and the range the panels show. Not a live region: it changes on every zoom step
+ * (the view announces the mode and the selection itself, once).
+ */
 export function ModeHint({
   ds,
   axis,
@@ -110,16 +113,17 @@ export function ModeHint({
   controller: TimeController
 }) {
   return (
-    <div className="tv-hint" role="status">
+    <div className="tv-hint">
       <p className="tv-hint-text">
         {mode === 'zoom' ? (
           <>
-            Scroll to zoom, drag to pan, double-click to reset. Press <kbd className="kbd">S</kbd> to select a window.
+            Scroll (or <kbd className="kbd">+</kbd> <kbd className="kbd">−</kbd>) to zoom, drag to pan, double-click to
+            reset. Press <kbd className="kbd">S</kbd> to select a window.
           </>
         ) : (
           <>
-            Drag across any plot to select a window. <kbd className="kbd">Esc</kbd> clears it,{' '}
-            <kbd className="kbd">Z</kbd> returns to zoom.
+            Drag across any plot to select a window, or type it with Set window. <kbd className="kbd">Esc</kbd> clears
+            it, <kbd className="kbd">Z</kbd> returns to zoom.
           </>
         )}
       </p>
@@ -134,12 +138,19 @@ function VisibleRange({ ds, axis, frame, controller }: { ds: Dataset; axis: Time
     const last = ds.rowCount - 1
     return <span className="tv-hint-range num">Whole log · {formatDuration(ds.elapsed[last] - ds.elapsed[0])}</span>
   }
-  const [start, end] = windowToRows(axis, frame, window)
-  const last = Math.max(start, end - 1)
+  const rows = windowToRows(axis, frame, window)
   return (
-    <span className="tv-hint-range num">
-      Showing {formatTimeRange(axis, window[0] / frame.factor, window[1] / frame.factor)} ·{' '}
-      {formatDuration(ds.elapsed[last] - ds.elapsed[start])}
+    <span className="tv-hint-range">
+      <span className="num">Showing {rangeText(ds, axis, rows)}</span>
+      <button
+        type="button"
+        className="btn btn-ghost btn-xs"
+        title="Select exactly what the panels show"
+        data-testid="select-visible-button"
+        onClick={() => setSelection(rows)}
+      >
+        Select this range
+      </button>
     </span>
   )
 }

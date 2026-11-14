@@ -13,6 +13,7 @@ import type { ECharts } from '../../charts/echarts'
 import { timeRamp, XY_REPLACE_MERGE, XY_ZOOM_X, XY_ZOOM_Y, xyChartOption } from '../../charts/options/xy'
 import { seriesColor, useChartTheme, type ChartTheme } from '../../charts/theme'
 import { channelTitle } from '../../core/channels'
+import { scrollBehavior } from '../../components/hooks'
 import { formatAxisValue } from '../../core/time'
 import type { TimeAxis, XYConfig } from '../../core/types'
 import { LineGlyph, MarkerGlyph, MeanGlyph, SlotSwatch } from './Glyphs'
@@ -29,7 +30,7 @@ import {
 } from './xyControls'
 import { boxRanges, hitTest, meanTooltipHtml, pixelBox, sampleTooltipHtml, type Hit } from './xyHover'
 import { SAMPLE_STRIDE, type FitWindow, type XYData, type XYFit, type XYLabels } from './xyModel'
-import { fitRows } from './xyTables'
+import { equationText, fitRows } from './xyTables'
 
 /** The parts of a zrender pointer event the view reads. */
 interface ZrPointer {
@@ -336,7 +337,7 @@ export function XYChartCard({ data, fits, labels, xy, axis, chartRef, focus, ext
   return (
     <section className="chart-card xy-card" data-testid="xy-chart" aria-label={description}>
       <div className="chart-card-header xy-card-header">
-        <div className="xy-legend" aria-label="Legend">
+        <div className="xy-legend" role="group" aria-label="Legend">
           {chips.length >= 2 &&
             chips.map((c) => (
               <span key={c.key} className="series-chip xy-legend-chip" title={c.name}>
@@ -406,13 +407,17 @@ export function XYChartCard({ data, fits, labels, xy, axis, chartRef, focus, ext
         {equations.length > 0 && (
           <ul className="xy-equations" aria-label="Fitted equations">
             {equations.slice(0, 8).map((r) => (
-              <li key={r.key} className="xy-equation-chip" title={r.problem || `${r.name}: ${r.equation}`}>
+              <li
+                key={r.key}
+                className="xy-equation-chip"
+                title={r.problem ? equationText(r, true) : `${r.name}: ${r.equation}`}
+              >
                 <SlotSwatch slot={r.slot} />
                 {r.problem ? (
-                  <span className="xy-equation-problem">{r.problem}</span>
+                  <span className="xy-equation-problem">{equationText(r, equations.length > 1)}</span>
                 ) : (
                   <>
-                    <span className="xy-equation-text">{r.equation}</span>
+                    <span className="xy-equation-text">{equationText(r, equations.length > 1)}</span>
                     <span className="xy-equation-stats">
                       R² {Number.isFinite(r.r2) ? (r.r2 >= 0.999 && r.r2 < 1 ? r.r2.toFixed(4) : r.r2.toFixed(3)) : '—'} · n {r.n}
                     </span>
@@ -436,5 +441,5 @@ function scrollToTables(event: MouseEvent<HTMLAnchorElement>): void {
   const target = document.getElementById('xy-tables')
   if (!target) return
   event.preventDefault()
-  target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  target.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
 }

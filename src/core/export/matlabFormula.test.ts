@@ -52,9 +52,12 @@ describe('formulaToMatlab', () => {
     expect(code('pow(Vind_kias, 2)')).toBe('xppReal(V .^ 2)')
   })
 
-  it('maps the time-aware functions to local helpers using the elapsed time', () => {
+  it('maps the time-aware functions to local helpers using the elapsed time and its segment starts', () => {
     const result = translate('diff(Vind_kias) + integ(alpha_deg) + smooth(Vind_kias, 2) + lag(alpha_deg, 3)')
-    expect(result.code).toBe('(((xppDdt(V, el) + xppInteg(A, el)) + xppSmooth(V, el, 2)) + xppLag(A, 3, nRows))')
+    expect(result.code).toBe(
+      '(((xppDdt(V, el, segStart) + xppInteg(A, el, segStart)) + xppSmooth(V, el, 2, segStart)) + ' +
+        'xppLag(A, 3, nRows, segStart))',
+    )
     expect(result.helpers.sort()).toEqual(['xppDdt', 'xppInteg', 'xppLag', 'xppSmooth'])
     expect(result.refs).toEqual(['Vind_kias', 'alpha_deg', 'Vind_kias', 'alpha_deg'])
   })

@@ -124,8 +124,18 @@ describe('matlabScript', () => {
     const text = body(script())
     expect(text).toContain("'Vind_kias', D(:, col('_Vind,_kias', 1)), 'KIAS [kt]'")
     expect(text).toContain("'elev1_deg_2', D(:, col('elev1,__deg', 2)), 'elev1 (2) [deg]'")
-    expect(text).toContain("writetable(T, fullfile(outDir, 'test_points.csv'));")
+    expect(text).toContain("writetable(csvT, fullfile(outDir, 'test_points.csv'));")
     expect(text).toContain('disp(T);')
+  })
+
+  it('defuses point and group names that a spreadsheet would run as formulas, as the app’s CSV does', () => {
+    const text = body(script())
+    // A point named "=SUM(A1)" is written as "'=SUM(A1)": Excel shows it as text.
+    expect(text).toContain("defuse = @(names) regexprep(names, '^([=+\\-@\\t\\r])', '''$1');")
+    expect(text).toContain('csvT.Point = defuse(csvT.Point);')
+    expect(text).toContain('csvT.Group = defuse(csvT.Group);')
+    expect(text.indexOf('csvT.Group = defuse')).toBeLessThan(text.indexOf("writetable(csvT, fullfile(outDir, 'test_points.csv'));"))
+    expect(text).not.toContain("writetable(T, fullfile(outDir, 'test_points.csv'));")
   })
 
   it('includes and leaves out sections and helpers by the include flags', () => {
@@ -174,7 +184,41 @@ describe('matlabScript', () => {
     expect(text).toContain('     42 120 214   % 1 #2a78d6 blue')
     // Every group is plotted unless the X–Y tab picked some.
     expect(text).toContain('xy.useGroup = [true; true];')
-    expect(text).toContain('if ~xy.useGroup(iGroup)')
+    expect(text).toContain('plotted = reshape(find(xy.useGroup), 1, []);')
+  })
+
+  it('fits once per colour, as the app: per group only when colouring by group, else the groups pooled per Y', () => {
+    const ws = makeWorkspace()
+    for (const colorBy of ['series', 'time', 'group'] as const) {
+      const text = body(script({}, sampleDataset(), { ...ws, xy: { ...ws.xy, colorBy } }))
+      expect(text).toContain(`xy.colorBy = '${colorBy}';`)
+      // The colour entities are chosen at run time from xy.colorBy, so it can be switched in MATLAB.
+      expect(text).toContain("if strcmp(xy.colorBy, 'group')\n        units = num2cell(plotted);\n    else\n        units = {plotted};")
+      expect(text).toContain('members = find(ismember(pointGroup, units{iUnit}) & ~pointHidden);')
+      // Each row once, as the app's disjoint ranges: overlapping test points do not weigh twice in a sample fit.
+      expect(text).toContain('rows = unique(vertcat(pointRows{members}));')
+      expect(text).toContain('fitLog = xppDrawFit(ax, xs, ys, equation, label, color, outside, fitLog);')
+      expect(text).not.toContain('for iGroup')
+    }
+  })
+
+  it('writes the X–Y axis ranges the app showed and fits through the samples inside them only', () => {
+    const text = body(script({ xyLimits: { x: [-5, 20], y: null } }))
+    expect(text).toMatch(/^xy\.xLimits = \[-5 20\]; +%/m)
+    expect(text).toMatch(/^xy\.yLimits = \[\]; +%/m)
+    expect(text).toContain('[fitRows, outside] = xppOnAxes(xy.x, xy.y{iY}, rows, xy.xLimits, xy.yLimits);')
+    expect(text).toContain('[xs, ys, equation] = xppPolyFit(xy.x(fitRows), xy.y{iY}(fitRows), xy.fitDegree);')
+    expect(text).toContain('xlim(ax, xy.xLimits);')
+    expect(text).toContain('ylim(ax, xy.yLimits);')
+    // The means fit is not limited (the app keeps every mean in view).
+    expect(text).toContain('[xs, ys, equation] = xppPolyFit(M(:, 1), M(:, 3), xy.fitDegree);')
+    expect(definedFunctions(script())).toEqual(expect.arrayContaining(['xppOnAxes', 'xppDrawFit']))
+    // No limits (or unusable ones): automatic axes.
+    expect(body(script())).toMatch(/^xy\.xLimits = \[\]; +%/m)
+    const bad = body(script({ xyLimits: { x: [3, 3], y: [Number.NaN, 1] } }))
+    expect(bad).toMatch(/^xy\.xLimits = \[\]; +%/m)
+    expect(bad).toMatch(/^xy\.yLimits = \[\]; +%/m)
+    expect(body(script({ xyLimits: { x: null, y: [-0.4, 1.2] } }))).toMatch(/^xy\.yLimits = \[-0\.4 1\.2\]; +%/m)
   })
 
   it('plots only the test-point groups chosen in the X–Y tab', () => {
@@ -262,5 +306,19 @@ describe('matlabLibrary', () => {
     expect(names).toEqual(expect.arrayContaining(['xppParseLine', 'xppSplitCells', 'xppCellValues', 'xppNormalize', 'xppNames']))
     expect(MATLAB_LIBRARY_FUNCTIONS).toContain('xppElapsed')
     expect(() => matlabLibrary(['nope'])).toThrow('unknown function nope')
+  })
+
+  it('computes the log-decrement cross-check as the app does, so both report the same ζ', () => {
+    // core/analysis/modes.ts logDecrementZeta over detectPeaks: turning points with a prominence of 5% of the range,
+    // at least 0.6 periods apart; runs of same-sign peaks 0.6–1.5 periods apart; peaks under 10% of the largest out.
+    const lib = matlabLibrary(['xppFitOscillation']).join('\n')
+    expect(definedFunctions(lib)).toEqual(
+      expect.arrayContaining(['xppLogDecZeta', 'xppPeaks', 'xppTurningPoints', 'xppBaseMinima']),
+    )
+    expect(lib).toContain('f.zetaLogDec = xppLogDecZeta(tau, e, f.period, max(1, round(0.6 * f.period / dt)));')
+    expect(lib).toContain('threshold = 0.05 * (max(values) - min(values));')
+    expect(lib).toContain('floorLevel = 0.1 * max(abs(d(pos)));')
+    expect(lib).toMatch(/< 0\.6 \* period[\s\S]*> 1\.5 \* period/)
+    expect(lib).toContain('zeta = delta / sqrt(4 * pi ^ 2 + delta ^ 2);')
   })
 })

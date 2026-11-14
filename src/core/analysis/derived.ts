@@ -20,13 +20,24 @@ export function withDerived(
   const channels: Channel[] = ds.channels.filter((ch) => !ch.derived)
   const ids = new Set(channels.map((ch) => ch.id))
   const errors: { id: string; message: string }[] = []
-  for (const def of defs) {
+  for (const def of defs as readonly unknown[]) {
+    // Defs can come from storage or a session file: check the shape before reading anything (the catch block too).
+    const id = isRecord(def) && typeof def.id === 'string' ? def.id : ''
     try {
+      if (!isDerivedDef(def)) {
+        throw new Error('This formula is damaged: it needs a name, a unit and an expression as text.')
+      }
       if (!/^fx:./.test(def.id)) throw new Error(`A formula channel id must look like "fx:<name>" (got "${def.id}").`)
       if (ids.has(def.id)) throw new Error(`Another channel already has the id "${def.id}".`)
       // The resolver sees the file channels plus the formulas evaluated so far (by their slug).
       const resolve = makeResolver({ ...ds, channels })
-      const values = compileExpression(def.expression).evaluate({ rowCount: ds.rowCount, time: ds.elapsed, resolve })
+      // diff, integ, smooth and lag stay inside each segment (never across a sim reset or recording gap).
+      const values = compileExpression(def.expression).evaluate({
+        rowCount: ds.rowCount,
+        time: ds.elapsed,
+        resolve,
+        segments: ds.segments,
+      })
       channels.push({
         id: def.id,
         token: '',
@@ -39,10 +50,24 @@ export function withDerived(
       })
       ids.add(def.id)
     } catch (error) {
-      errors.push({ id: def.id, message: describeError(error, channels) })
+      errors.push({ id, message: describeError(error, channels) })
     }
   }
   return { dataset: { ...ds, channels }, errors }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isDerivedDef(value: unknown): value is DerivedDef {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    typeof value.name === 'string' &&
+    typeof value.unit === 'string' &&
+    typeof value.expression === 'string'
+  )
 }
 
 /** The error's message, with a "did you mean" hint for a misspelt channel alias. */
@@ -142,6 +167,7 @@ const SREF = 'S_ref_ft_ft' // "S-ref,ft*ft" reference wing area, ft²
 const LIFT = 'lift_lb' // "_lift,___lb" total aerodynamic lift, lb
 const DRAG = 'drag_lb' // "_drag,___lb" total aerodynamic drag, lb
 const PALT = 'p_alt_ftMSL' // "p-alt,ftMSL" pressure altitude, ft
+const ALT_MSL = 'CG_ftMSL' // "___CG,ftMSL" geometric altitude of the CG above mean sea level, ft
 const MAX_ENGINES = 16
 const thrustAlias = (k: number) => `thrst_${k}_lb` // "thrst,_1,lb"
 const fuelFlowAlias = (k: number) => `FF_${k}_lb_h` // "FF__1,_lb/h"
@@ -180,17 +206,34 @@ export function availablePresets(ds: Dataset): DerivedPreset[] {
   const thrust = sum(thrusts)
   const fuelFlow = sum(fuelFlows)
   const engineCount = (n: number) => (n === 1 ? 'the engine' : `all ${n} engines`)
-  // dh/dt (m/s) for the energy presets. X-Plane's VVI is the *indicated* vertical speed: it lags the true climb rate
-  // (instrument lag, large errors in a pull-up), so the rate of change of pressure altitude is preferred — lag-free,
-  // and consistent with energy height. (vY is not used: it is in X-Plane's flat local frame and drifts away from the
-  // scenery origin.)
-  const climb = has(PALT)
-    ? { expr: `diff(${PALT} * ft2m)`, requires: [PALT], source: 'dh/dt from the rate of change of pressure altitude' }
-    : {
-        expr: `${VVI} * fpm2ms`,
-        requires: [VVI],
-        source: "dh/dt from VVI (X-Plane's indicated vertical speed lags: accurate in steady flight only)",
+  // dh/dt (m/s) for the energy presets: the true (geometric) climb rate, from the CG's altitude above MSL when it is
+  // logged. Pressure altitude is the fallback: outside ISA weather its rate is the true rate × T_std/T (a few per cent
+  // per 10 °C of temperature deviation). X-Plane's VVI comes last: it is the *indicated* vertical speed and lags the
+  // true climb rate (instrument lag, large errors in a pull-up). (vY is not used: it is in X-Plane's flat local frame
+  // and drifts away from the scenery origin.)
+  const climb = has(ALT_MSL)
+    ? {
+        expr: `diff(${ALT_MSL} * ft2m)`,
+        requires: [ALT_MSL],
+        source: 'dh/dt from the rate of change of the geometric altitude (___CG,ftMSL)',
       }
+    : has(PALT)
+      ? {
+          expr: `diff(${PALT} * ft2m)`,
+          requires: [PALT],
+          source:
+            'dh/dt from the rate of change of pressure altitude (the true climb rate only in ISA weather: it scales ' +
+            'with T_std/T)',
+        }
+      : {
+          expr: `${VVI} * fpm2ms`,
+          requires: [VVI],
+          source: "dh/dt from VVI (X-Plane's indicated vertical speed lags: accurate in steady flight only)",
+        }
+  // Energy height takes the geometric altitude too (potential energy is m·g·h), else pressure altitude.
+  const height = has(ALT_MSL)
+    ? { alias: ALT_MSL, text: 'the geometric altitude (___CG,ftMSL)' }
+    : { alias: PALT, text: 'pressure altitude (the geometric height only in ISA weather)' }
 
   const presets: Omit<DerivedPreset, 'id'>[] = []
   const add = (preset: Omit<DerivedPreset, 'id'>, available = true) => {
@@ -324,11 +367,11 @@ export function availablePresets(ds: Dataset): DerivedPreset[] {
   add({
     name: 'Energy height',
     unit: 'ft',
-    expression: `${PALT} + ${V_MS}^2 / (2 * g0) / ft2m`,
+    expression: `${height.alias} + ${V_MS}^2 / (2 * g0) / ft2m`,
     description:
-      'Specific energy h_E = h + V_TAS²/(2g): pressure altitude plus kinetic energy per unit weight. Its rate of ' +
+      `Specific energy h_E = h + V_TAS²/(2g): ${height.text} plus kinetic energy per unit weight. Its rate of ` +
       'change is the specific excess power.',
-    requires: [PALT, KTAS],
+    requires: [height.alias, KTAS],
   })
   add({
     name: 'Flight-path angle',
@@ -337,7 +380,7 @@ export function availablePresets(ds: Dataset): DerivedPreset[] {
     description:
       'γ = asin(VVI / V_TAS): climb angle relative to the air (no vertical wind assumed); NaN where TAS is too ' +
       "low for the climb rate. X-Plane's VVI is the indicated vertical speed and lags, so use it in " +
-      'steady climbs and descents (for manoeuvres: deg(asin(diff(p_alt_ftMSL * ft2m) / (Vtrue_ktas * kt2ms)))). ' +
+      'steady climbs and descents (for manoeuvres: deg(asin(diff(CG_ftMSL * ft2m) / (Vtrue_ktas * kt2ms)))). ' +
       'X-Plane also logs the inertial flight-path angle as vpath,__deg.',
     requires: [VVI, KTAS],
   })

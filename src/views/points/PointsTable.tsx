@@ -13,7 +13,8 @@ import {
   TriangleUpIcon,
   ZoomInIcon,
 } from '@primer/octicons-react'
-import type { KeyboardEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { scrollBehavior } from '../../components/hooks'
 import { formatDuration } from '../../core/time'
 import type { Channel, Dataset, PointGroup, TestPoint, TimeAxis } from '../../core/types'
 import {
@@ -27,6 +28,7 @@ import {
   updatePoint,
   updateWorkspace,
 } from '../../store/app'
+import { modesForPoint } from '../modes/modesModel'
 import {
   driftSummary,
   formatMeanSd,
@@ -48,9 +50,64 @@ interface PointsTableProps {
   onSort: (key: PointSortKey) => void
 }
 
+/**
+ * The channel columns hidden (wholly or partly) under the pinned actions column, and how far to scroll to bring the
+ * first of them fully into view.
+ */
+function hiddenColumns(wrap: HTMLElement): { count: number; scrollBy: number } {
+  const actions = wrap.querySelector<HTMLElement>('th.pt-col-actions')
+  if (!actions || wrap.scrollWidth <= wrap.clientWidth + 1) return { count: 0, scrollBy: 0 }
+  const edge = actions.getBoundingClientRect().left
+  let count = 0
+  let scrollBy = 0
+  for (const th of wrap.querySelectorAll<HTMLElement>('th.pt-col-stat')) {
+    const right = th.getBoundingClientRect().right
+    if (right <= edge + 1) continue
+    if (count === 0) scrollBy = right - edge
+    count += 1
+  }
+  return { count, scrollBy }
+}
+
 export function PointsTable({ ds, groups, rows, tracked, axis, sort, onSort }: PointsTableProps) {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [more, setMore] = useState({ count: 0, scrollBy: 0 })
+  const [overflows, setOverflows] = useState(false)
+  const measure = useCallback(() => {
+    const wrap = wrapRef.current
+    if (!wrap) return
+    const next = hiddenColumns(wrap)
+    setMore((current) => (current.count === next.count && Math.abs(current.scrollBy - next.scrollBy) < 1 ? current : next))
+    setOverflows(wrap.scrollWidth > wrap.clientWidth + 1)
+  }, [])
+  useEffect(() => {
+    const wrap = wrapRef.current
+    if (!wrap) return
+    let frame = 0
+    const soon = () => {
+      if (!frame) frame = requestAnimationFrame(() => ((frame = 0), measure()))
+    }
+    soon()
+    wrap.addEventListener('scroll', soon, { passive: true })
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(soon)
+    observer?.observe(wrap)
+    return () => {
+      cancelAnimationFrame(frame)
+      wrap.removeEventListener('scroll', soon)
+      observer?.disconnect()
+    }
+  }, [measure, tracked, rows.length])
+  const showMore = () => wrapRef.current?.scrollBy({ left: more.scrollBy + 1, behavior: scrollBehavior() })
+
   return (
-    <div className="pt-table-wrap">
+    // The frame scrolls sideways through the channel columns: a tab stop (arrow keys scroll it) when it does.
+    <div
+      ref={wrapRef}
+      className={`pt-table-wrap${rows.length < 3 ? ' pt-table-wrap-short' : ''}${more.count > 0 ? ' pt-more-right' : ''}`}
+      role="region"
+      aria-label={overflows ? 'Test points table (scrolls sideways)' : 'Test points table'}
+      tabIndex={overflows ? 0 : undefined}
+    >
       <table className="table pt-table" data-testid="points-table">
         <thead>
           <tr>
@@ -79,6 +136,17 @@ export function PointsTable({ ds, groups, rows, tracked, axis, sort, onSort }: P
             ))}
             <th scope="col" className="pt-col-actions">
               <span className="sr-only">Actions</span>
+              {more.count > 0 && (
+                <button
+                  type="button"
+                  className="pt-more"
+                  aria-label={`Show the next channel column (${more.count} more to the right)`}
+                  title="Scroll to the next channel column (or scroll the table sideways)"
+                  onClick={showMore}
+                >
+                  {more.count} more<span aria-hidden="true">›</span>
+                </button>
+              )}
             </th>
           </tr>
         </thead>
@@ -303,7 +371,7 @@ function RowActions({ ds, point }: { ds: Dataset; point: TestPoint }) {
         aria-label={`Analyse ${point.name} in Dynamic modes`}
         title="Analyse it in Dynamic modes"
         onClick={() => {
-          setModes({ source: `point:${point.id}` })
+          setModes(modesForPoint(ds, point))
           setTab('modes')
         }}
       >

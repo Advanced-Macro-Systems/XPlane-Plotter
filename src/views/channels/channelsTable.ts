@@ -1,6 +1,7 @@
 // Pure logic of the Channels tab table: rows with their group and flags, filtering, sorting, counts and the CSV / TSV
 // text of the table. No React here (unit-tested in node).
 
+import { MINUS, formatNumber } from '../../charts/format'
 import { matchesChannel } from '../../components/channelGroups'
 import { allGroups, channelTitle, groupById } from '../../core/channels'
 import { channelAlias } from '../../core/channels/alias'
@@ -165,6 +166,26 @@ export function sortRows(rows: readonly ChannelRow[], sort: SortState): ChannelR
   return [...rows].sort((a, b) => compareText(a, b, sort.key) * dir || a.index - b.index)
 }
 
+// ------------------------------------------------------------------------------------------------ statistics
+
+/**
+ * A statistic in the table's narrow number columns: 4 significant figures, and below 10^−3 or from 10^6 up in exponent
+ * form ("3.142e−4", not "0.00031416"), so every value fits its column whole and is never cut with an ellipsis.
+ */
+export function statText(value: number): string {
+  const magnitude = Math.abs(value)
+  if (Number.isFinite(value) && value !== 0 && (magnitude < 1e-3 || magnitude >= 1e6)) {
+    const [mantissa, exponent] = value.toExponential(3).split('e')
+    return `${mantissa.replace(/\.?0+$/, '')}e${Number(exponent)}`.replace(/-/g, MINUS)
+  }
+  return formatNumber(value, 4)
+}
+
+/** The same value to 7 significant figures, for the cell's tooltip. */
+export function statTitle(value: number): string {
+  return formatNumber(value, 7)
+}
+
 // ------------------------------------------------------------------------------------------------ counts
 
 export interface ChannelCounts {
@@ -188,11 +209,15 @@ export function channelCounts(rows: readonly ChannelRow[]): ChannelCounts {
 
 const plural = (n: number, word: string) => `${n.toLocaleString('en-GB')} ${word}${n === 1 ? '' : 's'}`
 
-/** "173 channels · 24 constant · 0 unknown" (with "40 of 173 channels" when filtered, and formulas when any). */
-export function countsText(counts: ChannelCounts, shown: number): string {
-  const total = shown === counts.total ? plural(counts.total, 'channel') : `${shown.toLocaleString('en-GB')} of ${plural(counts.total, 'channel')}`
-  const parts = [total, `${counts.constant.toLocaleString('en-GB')} constant`, `${counts.unknown.toLocaleString('en-GB')} unknown`]
-  if (counts.formulas > 0) parts.push(plural(counts.formulas, 'formula'))
+/**
+ * "173 channels · 24 constant · 0 unknown" for the rows shown (`shown`, from channelCounts of those rows), with
+ * "40 of 173 channels" when a filter hides some (`fileTotal` is every channel), and formulas when any.
+ */
+export function countsText(shown: ChannelCounts, fileTotal: number): string {
+  const total =
+    shown.total === fileTotal ? plural(fileTotal, 'channel') : `${shown.total.toLocaleString('en-GB')} of ${plural(fileTotal, 'channel')}`
+  const parts = [total, `${shown.constant.toLocaleString('en-GB')} constant`, `${shown.unknown.toLocaleString('en-GB')} unknown`]
+  if (shown.formulas > 0) parts.push(plural(shown.formulas, 'formula'))
   return parts.join(' · ')
 }
 

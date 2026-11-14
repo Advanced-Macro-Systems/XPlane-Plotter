@@ -5,6 +5,7 @@
 import { PlusIcon } from '@primer/octicons-react'
 import { useMemo, useRef, useState } from 'react'
 import { ChannelList } from '../../components/ChannelPicker'
+import { ViewSidebar } from '../../components/ViewSidebar'
 import { channelById } from '../../core/dataset'
 import type { Dataset, Workspace } from '../../core/types'
 import { setPanels, toast } from '../../store/app'
@@ -47,7 +48,7 @@ export function TimeSidebar({ ds, ws, activePanelId, onPicked, onPreset }: TimeS
   }
 
   return (
-    <aside className="view-sidebar tv-sidebar" aria-label="Channels and presets">
+    <ViewSidebar className="tv-sidebar" label="Channels and presets">
       <section className="tv-side-channels" aria-labelledby="tv-channels-title">
         <div className="tv-side-head">
           <h2 id="tv-channels-title" className="eyebrow">
@@ -82,7 +83,7 @@ export function TimeSidebar({ ds, ws, activePanelId, onPicked, onPreset }: TimeS
         </div>
       </section>
       <Presets ds={ds} ws={ws} onPreset={onPreset} />
-    </aside>
+    </ViewSidebar>
   )
 }
 

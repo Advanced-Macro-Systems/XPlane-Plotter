@@ -26,9 +26,17 @@ interface ChannelListProps {
   maxHeight?: number
   /** Show constant channels initially */
   showConstantInitially?: boolean
+  /** Accessible name of the list (default "Channels") */
+  listLabel?: string
 }
 
-/** The list itself (search + grouped options); also usable inline, e.g. as a sidebar. */
+/** Options moved by PageUp / PageDown */
+const PAGE_STEP = 8
+
+/**
+ * The list itself (search + grouped options); also usable inline, e.g. as a sidebar. One tab stop: the search box is a
+ * combobox that drives the list (↑/↓, PageUp/PageDown, Home/End, Enter picks), so Tab moves past the list at once.
+ */
 export function ChannelList({
   dataset,
   selected,
@@ -40,10 +48,13 @@ export function ChannelList({
   header,
   maxHeight = 360,
   showConstantInitially = false,
+  listLabel = 'Channels',
 }: ChannelListProps) {
   const [query, setQuery] = useState('')
   const [showConstant, setShowConstant] = useState(showConstantInitially)
   const [active, setActive] = useState(0)
+  /** The search box has the focus: the active option is the keyboard's position and gets the focus ring */
+  const [typing, setTyping] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const listId = useId()
@@ -71,13 +82,25 @@ export function ChannelList({
     listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [active])
 
+  const optionId = (i: number) => `${listId}-o${i}`
+  const move = (to: (i: number) => number) => setActive((i) => Math.max(0, Math.min(flat.length - 1, to(i))))
+
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown') {
       event.preventDefault()
-      setActive((i) => Math.min(flat.length - 1, i + 1))
+      move((i) => i + 1)
     } else if (event.key === 'ArrowUp') {
       event.preventDefault()
-      setActive((i) => Math.max(0, i - 1))
+      move((i) => i - 1)
+    } else if (event.key === 'PageDown') {
+      event.preventDefault()
+      move((i) => i + PAGE_STEP)
+    } else if (event.key === 'PageUp') {
+      event.preventDefault()
+      move((i) => i - PAGE_STEP)
+    } else if ((event.key === 'Home' || event.key === 'End') && !event.shiftKey) {
+      event.preventDefault()
+      move(() => (event.key === 'Home' ? 0 : flat.length - 1))
     } else if (event.key === 'Enter') {
       event.preventDefault()
       const ch = flat[active]
@@ -93,20 +116,35 @@ export function ChannelList({
           ref={searchRef}
           className="input input-sm cp-search-input"
           type="search"
+          role="combobox"
           placeholder={`Search ${candidates.length} channels…`}
           value={query}
           aria-controls={listId}
+          aria-expanded="true"
+          aria-autocomplete="list"
+          aria-activedescendant={flat[active] ? optionId(active) : undefined}
           aria-label="Search channels"
+          title="Type to filter; ↑ ↓ to move through the list, Enter to pick"
           onChange={(e) => {
             setQuery(e.target.value)
             setActive(0)
           }}
+          onFocus={() => setTyping(true)}
+          onBlur={() => setTyping(false)}
           onKeyDown={onKeyDown}
           data-autofocus={autoFocus ? '' : undefined}
         />
       </div>
       {header}
-      <div ref={listRef} id={listId} className="cp-list" role="listbox" aria-multiselectable={multiple} style={{ maxHeight }}>
+      <div
+        ref={listRef}
+        id={listId}
+        className="cp-list"
+        role="listbox"
+        aria-label={listLabel}
+        aria-multiselectable={multiple}
+        style={{ maxHeight }}
+      >
         {blocks.length === 0 && <p className="cp-empty">No channels match “{query}”.</p>}
         {blocks.map((block) => (
           <div key={block.id} role="group" aria-label={block.name}>
@@ -118,11 +156,14 @@ export function ChannelList({
               return (
                 <button
                   key={ch.id}
+                  id={optionId(i)}
                   type="button"
                   role="option"
+                  tabIndex={-1}
                   aria-selected={isSelected}
+                  aria-disabled={disabled || undefined}
                   data-index={i}
-                  className={`cp-option${i === active ? ' cp-option-active' : ''}`}
+                  className={`cp-option${i === active ? ` cp-option-active${typing ? ' cp-option-cursor' : ''}` : ''}`}
                   disabled={disabled}
                   title={disabled ? `At most ${max} channels` : (ch.meta.description ?? ch.meta.label)}
                   onMouseEnter={() => setActive(i)}
@@ -222,6 +263,7 @@ export function ChannelPicker({
       align={align}
       width={width}
       disabled={disabled}
+      haspopup="dialog"
     >
       {(close) => (
         <ChannelList

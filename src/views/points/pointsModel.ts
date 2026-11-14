@@ -3,7 +3,8 @@
 // point is offered, and the mean ± σ display format (shared with the X–Y means table). Pure: no React, no DOM.
 
 import { MISSING, formatFixed, formatNumber } from '../../charts/format'
-import { driftPerMinute, rangeStats, type RangeStats } from '../../core/analysis/stats'
+import { rangeStats, type RangeStats } from '../../core/analysis/stats'
+import { windowStats } from '../../core/analysis/windowStats'
 import { channelById } from '../../core/dataset'
 import { formatAxisValue } from '../../core/time'
 import type { Channel, Dataset, PointGroup, RowRange, TestPoint, TimeAxis, Workspace } from '../../core/types'
@@ -34,7 +35,7 @@ export function formatMeanSd(mean: number, sd: number): MeanSdText {
 
 /**
  * Physical floors (per window) below which a trend is not worth flagging, for common units. Without one, the floor is
- * a small share of the channel's spread over the whole file.
+ * a small share of the channel's spread over the whole file (fileSpread).
  */
 const UNIT_FLOOR: Readonly<Record<string, number>> = {
   kt: 0.5,
@@ -49,6 +50,48 @@ const UNIT_FLOOR: Readonly<Record<string, number>> = {
   rpm: 10,
 }
 const RELATIVE_FLOOR = 0.02
+
+/** The unit's floor; 0 for units without one (an own key only: a unit named "constructor" is just a unit). */
+function unitFloor(unit: string): number {
+  return Object.hasOwn(UNIT_FLOOR, unit) ? UNIT_FLOOR[unit] : 0
+}
+
+/** At most this many samples are sorted to estimate a channel's spread. */
+const SPREAD_SAMPLES = 16_384
+const spreadCache = new WeakMap<ArrayLike<number>, number>()
+
+/** Linear-interpolated quantile of sorted values. */
+function quantileSorted(sorted: Float64Array, p: number): number {
+  const at = p * (sorted.length - 1)
+  const lo = Math.floor(at)
+  const hi = Math.min(sorted.length - 1, lo + 1)
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (at - lo)
+}
+
+/**
+ * How much a channel varies over the whole file, robustly: the interquartile range / 1.349 (σ for normally
+ * distributed data) of its finite values, so a few absurd samples (CL of order 10^8 on the ground at zero airspeed) do
+ * not inflate it the way they inflate σ. Falls back to σ when the middle half is constant. Long channels are sampled;
+ * the result is cached per values array.
+ */
+export function fileSpread(ch: { values?: ArrayLike<number>; stats: { std: number } }): number {
+  const std = Number.isFinite(ch.stats.std) ? ch.stats.std : 0
+  const values = ch.values
+  if (!values || values.length === 0) return std
+  const cached = spreadCache.get(values)
+  if (cached !== undefined) return cached
+  const stride = Math.max(1, Math.ceil(values.length / SPREAD_SAMPLES))
+  const picked: number[] = []
+  for (let i = 0; i < values.length; i += stride) if (Number.isFinite(values[i])) picked.push(values[i])
+  let spread = std
+  if (picked.length >= 4) {
+    const sorted = Float64Array.from(picked).sort()
+    const iqr = quantileSorted(sorted, 0.75) - quantileSorted(sorted, 0.25)
+    if (iqr > 0 && Number.isFinite(iqr)) spread = iqr / 1.349
+  }
+  spreadCache.set(values, spread)
+  return spread
+}
 
 export interface Steadiness {
   /** Least-squares slope per minute */
@@ -68,12 +111,11 @@ export function steadiness(
   stats: RangeStats,
   drift: number,
   seconds: number,
-  ch: { meta: { unit: string }; stats: { std: number } },
+  ch: { meta: { unit: string }; stats: { std: number }; values?: ArrayLike<number> },
 ): Steadiness {
   const change = Math.abs(drift) * (seconds / 60)
   const sigma = Number.isFinite(stats.std) ? stats.std : 0
-  const fileSpread = Number.isFinite(ch.stats.std) ? ch.stats.std : 0
-  const floor = Math.max(UNIT_FLOOR[ch.meta.unit] ?? 0, RELATIVE_FLOOR * fileSpread, 1e-9 * Math.abs(stats.mean), 1e-12)
+  const floor = Math.max(unitFloor(ch.meta.unit), RELATIVE_FLOOR * fileSpread(ch), 1e-9 * Math.abs(stats.mean), 1e-12)
   const limit = Math.max(2 * sigma, floor)
   return { drift, change, limit, flagged: stats.n >= 3 && Number.isFinite(change) && change > limit }
 }
@@ -85,6 +127,11 @@ export function driftText(drift: number, unit: string): string {
   const signed = drift > 0 ? `+${value}` : value
   return `drifting ${signed} ${unit ? `${unit}/min` : 'per min'}`
 }
+
+// ------------------------------------------------------------------ directions (0–360°)
+
+// Heading-aware window statistics live in core (the test-point CSV uses them too); re-exported for the views.
+export { isDirectionChannel, unwrapDegrees, windowStats } from '../../core/analysis/windowStats'
 
 /** Time channels always "drift": they are left out of the steadiness check. */
 function timeLike(ch: Channel, ds: Dataset): boolean {
@@ -136,9 +183,9 @@ export function buildPointRows(
     const last = Math.max(start, end - 1)
     const seconds = end > start ? ds.elapsed[last] - ds.elapsed[start] : 0
     const cells = tracked.map((channel): PointCell => {
-      const stats = rangeStats(channel.values, start, end)
+      const { stats, drift } = windowStats(channel, ds.elapsed, start, end)
       if (stats.n < 3 || timeLike(channel, ds)) return { channel, stats, steady: null, hint: '' }
-      const steady = steadiness(stats, driftPerMinute(channel.values, ds.elapsed, start, end), seconds, channel)
+      const steady = steadiness(stats, drift, seconds, channel)
       return { channel, stats, steady, hint: steady.flagged ? driftText(steady.drift, channel.meta.unit) : '' }
     })
     return {

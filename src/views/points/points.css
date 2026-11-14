@@ -126,7 +126,8 @@
 /* ---------------------------------------------------------------- table */
 
 .pt-table-wrap {
-  --pt-group-w: 160px;
+  /* Wide enough for a two-word group name ("Dynamic modes") at full width. */
+  --pt-group-w: 168px;
   /* The containing block of anything absolute inside (screen-reader labels): otherwise it escapes this scroller and
      makes the whole view scroll sideways. */
   position: relative;
@@ -186,6 +187,55 @@
 }
 .pt-table .pt-col-actions {
   box-shadow: -6px 0 8px -8px var(--pin-shadow);
+}
+
+/* With one or two rows the frame hugs the table: no empty band under it. */
+.pt-table-wrap-short {
+  flex: none;
+  min-height: 0;
+}
+/* The frame is a tab stop while it scrolls sideways (the arrow keys then scroll it). */
+.pt-table-wrap:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+/* While channel columns hide under the pinned actions, the one cut at the edge fades out (so a clipped value never
+   reads as complete) and the header offers "N more ›". */
+.pt-more-right .pt-table .pt-col-actions {
+  box-shadow: -8px 0 10px -6px var(--pin-shadow);
+}
+.pt-more-right .pt-table .pt-col-actions::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: calc(100% + 1px);
+  bottom: 0;
+  width: 32px;
+  background: linear-gradient(to right, transparent, var(--row-bg, var(--surface)));
+  pointer-events: none;
+}
+.pt-more-right .pt-table th.pt-col-actions::before {
+  background: linear-gradient(to right, transparent, var(--surface-2));
+}
+.pt-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pt-more:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
 }
 
 .pt-sort {
@@ -421,38 +471,6 @@
   padding: 8px 10px;
   border-radius: var(--radius);
   background: var(--surface-2);
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.pt-import {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.pt-import-facts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 16px;
-  margin: 0;
-}
-.pt-import-facts div {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.pt-import-facts dt {
-  color: var(--text-subtle);
-  font-size: 12px;
-  font-weight: 600;
-}
-.pt-import-facts dd {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.pt-import-note {
   color: var(--text-muted);
   font-size: 13px;
 }

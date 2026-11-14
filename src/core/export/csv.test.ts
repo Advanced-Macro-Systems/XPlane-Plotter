@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { csvField, datasetCsv, pointsTableCsv } from './csv'
-import { makeWorkspace, sampleDataset } from './testFixtures'
+import { fileChannel, makeDataset, makeWorkspace, sampleDataset } from './testFixtures'
 
 const lines = (csv: string) => csv.split('\r\n')
 
@@ -123,6 +123,24 @@ describe('pointsTableCsv', () => {
     })
     const row = lines(pointsTableCsv(ds, outside, ['_Vind,_kias']))[1]
     expect(row).toBe('gone,,,,,6,6,0,,,,,,0')
+  })
+
+  it('takes a heading window through north as a turn, like the Test points table (not a 180° mean)', () => {
+    const north = makeDataset(
+      [
+        fileChannel('_totl,_time', 1, 0, [0, 1, 2, 3], 'Sim time', 's'),
+        fileChannel('hding,_true', 1, 1, [358, 359, 1, 2], 'Heading', 'deg'),
+      ],
+      [0, 1, 2, 3],
+    )
+    const point = makeWorkspace({ points: [{ id: 'n', name: 'North', groupId: 'g1', start: 0, end: 4 }] })
+    const cells = lines(pointsTableCsv(north, point, ['hding,_true']))[1].split(',').map(Number)
+    // Unwrapped 358, 359, 361, 362: mean 360 = 0°, σ = √(10/3), min/max 2° either side, +1.4°/s = +84°/min.
+    expect(cells[8]).toBeCloseTo(0, 9)
+    expect(cells[9]).toBeCloseTo(Math.sqrt(10 / 3), 9)
+    expect(cells[10]).toBeCloseTo(-2, 9)
+    expect(cells[11]).toBeCloseTo(2, 9)
+    expect(cells[12]).toBeCloseTo(84, 9)
   })
 
   it('writes TSV and ignores unknown channel ids', () => {

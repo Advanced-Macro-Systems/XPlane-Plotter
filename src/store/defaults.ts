@@ -3,6 +3,7 @@
 import { channelById } from '../core/dataset'
 import type {
   Dataset,
+  DerivedDef,
   ModesConfig,
   PanelConfig,
   PointGroup,
@@ -14,6 +15,8 @@ import type {
 
 /** Most series a chart shows (the categorical palette has 8 validated slots; a 9th colour is never generated). */
 export const MAX_SERIES = 8
+/** Most test-point groups a file can have: one colour slot each, so a 9th group would repeat a colour. */
+export const MAX_GROUPS = 8
 
 let idCounter = 0
 /** Short unique id with a prefix: "p3k9x2a". */
@@ -214,14 +217,7 @@ export function sanitizeWorkspace(input: unknown, ds: Dataset): Workspace {
       })
     : []
 
-  const derived = Array.isArray(input.derived)
-    ? input.derived.filter(isObject).flatMap((d) => {
-        const id = str(d.id, '')
-        const name = str(d.name, '')
-        const expression = str(d.expression, '')
-        return id.startsWith('fx:') && name && expression ? [{ id, name, unit: str(d.unit, ''), expression }] : []
-      })
-    : []
+  const derived = sanitizeDerived(input.derived)
 
   const xyIn = isObject(input.xy) ? input.xy : {}
   const xy: XYConfig = {
@@ -262,6 +258,24 @@ export function sanitizeWorkspace(input: unknown, ds: Dataset): Workspace {
     : fallback.tracked
 
   return { version: 1, timeBase, panels, groups, points, derived, xy, modes, tracked }
+}
+
+/**
+ * The formulas of a saved or imported workspace, made safe to evaluate: objects only, an "fx:<slug>" id (the first
+ * of a repeated id wins), a name (at most 80 characters, as the formula dialog allows) and an expression that are not
+ * empty, and a text unit (else none). Anything else is dropped: localStorage and session files are untrusted.
+ */
+export function sanitizeDerived(input: unknown): DerivedDef[] {
+  if (!Array.isArray(input)) return []
+  const seen = new Set<string>()
+  return input.filter(isObject).flatMap((d) => {
+    const id = str(d.id, '')
+    const name = str(d.name, '').trim().slice(0, 80)
+    const expression = str(d.expression, '')
+    if (!/^fx:./.test(id) || seen.has(id) || !name || !expression.trim()) return []
+    seen.add(id)
+    return [{ id, name, unit: str(d.unit, '').slice(0, 24), expression }]
+  })
 }
 
 /** XYConfig.groups kept only when it names existing groups (absent = every group). */

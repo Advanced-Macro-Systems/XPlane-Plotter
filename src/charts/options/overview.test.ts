@@ -6,7 +6,10 @@ import {
   GLANCE_GRID,
   glanceChartOption,
   groundTrackOption,
+  HOVER_SERIES_ID,
+  HOVER_STEPS,
   keepLabelInside,
+  lonePositions,
   TRACK_GRID,
   valueAt,
   type GlanceChartInput,
@@ -32,18 +35,22 @@ function input(patch: Partial<GlanceChartInput> = {}): GlanceChartInput {
     markers: [{ x: 1, label: 'reset' }],
     labelMarkers: true,
     bands: [
-      { from: 0.2, to: 0.8, slot: 3 },
-      { from: 1.2, to: 1.8, slot: 0 },
+      { from: 0.2, to: 0.8 },
+      { from: 1.2, to: 1.8 },
     ],
     formatX: (x) => `t = ${x} s`,
     ...patch,
   }
 }
 
+/** The drawn lines of a glance chart (every series but the invisible hover instants). */
+const glanceLines = (option: unknown) => list(rec(option).series).filter((s) => s.id !== HOVER_SERIES_ID)
+const hoverOf = (option: unknown) => list(rec(option).series).find((s) => s.id === HOVER_SERIES_ID) as AnyRecord
+
 describe('glanceChartOption', () => {
   it('draws one thin line per channel in its slot colour, without symbols, over a fixed time span', () => {
     const option = rec(glanceChartOption(theme, input()))
-    const series = list(option.series)
+    const series = glanceLines(option)
     expect(series.map((s) => s.type)).toEqual(['line', 'line'])
     expect(series.map((s) => s.color)).toEqual([theme.series[0], theme.series[1]])
     expect(series.every((s) => s.showSymbol === false && s.sampling === 'lttb')).toBe(true)
@@ -63,21 +70,55 @@ describe('glanceChartOption', () => {
     expect(rec(rec(rec(glanceChartOption(theme, input({ showXAxis: false }))).xAxis).axisLabel).show).toBe(false)
   })
 
-  it('bands the test points in their group colour and marks segment boundaries', () => {
-    const series = list(rec(glanceChartOption(theme, input())).series)
-    const area = rec(series[0].markArea)
+  it('bands the test points in a neutral colour (never a group colour) and marks segment boundaries', () => {
+    const option = glanceChartOption(theme, input())
+    // Carried once per chart, by the invisible hover series, not by a line.
+    const area = rec(hoverOf(option).markArea)
     const bands = area.data as AnyRecord[][]
     expect(bands).toHaveLength(2)
-    expect(bands[0][0]).toMatchObject({ xAxis: 0.2, itemStyle: { color: theme.series[3] } })
+    expect(bands[0][0]).toMatchObject({ xAxis: 0.2, itemStyle: { color: theme.textMuted } })
     expect(bands[0][1]).toEqual({ xAxis: 0.8 })
     expect(area.silent).toBe(true)
-    const markLine = rec(series[0].markLine)
+    const markLine = rec(hoverOf(option).markLine)
     expect(markLine.data).toEqual([{ xAxis: 1, name: 'reset' }])
     expect(rec(markLine.label).show).toBe(true)
     expect(rec(markLine.label).color).toBe(theme.textMuted)
-    expect(series[1].markArea).toBeUndefined()
-    const unlabelled = list(rec(glanceChartOption(theme, input({ labelMarkers: false }))).series)
-    expect(rec(rec(unlabelled[0].markLine).label).show).toBe(false)
+    expect(glanceLines(option).every((s) => s.markArea === undefined && s.markLine === undefined)).toBe(true)
+    const unlabelled = hoverOf(glanceChartOption(theme, input({ labelMarkers: false })))
+    expect(rec(rec(unlabelled.markLine).label).show).toBe(false)
+  })
+
+  it('gives every chart of the stack the same hover instants, so the linked tooltips show one time', () => {
+    const top = glanceChartOption(theme, input({ xMin: 10, xMax: 610 }))
+    const other = glanceChartOption(
+      theme,
+      input({
+        xMin: 10,
+        xMax: 610,
+        lines: [{ name: 'pitch', slot: 0, data: [[10, -3], [300.7, 12], [610, 5]] }],
+        unit: 'deg',
+      }),
+    )
+    const series = list(rec(top).series)
+    // Series 0 in every chart: a linked chart is handed the hovered sample by series and data index.
+    expect(series[0].id).toBe(HOVER_SERIES_ID)
+    expect(list(rec(other).series)[0].id).toBe(HOVER_SERIES_ID)
+    const xs = (option: unknown) => (hoverOf(option).data as [number, number][]).map(([x]) => x)
+    expect(xs(top)).toHaveLength(HOVER_STEPS)
+    expect(xs(top)).toEqual(xs(other))
+    expect(xs(top)[0]).toBe(10)
+    expect(xs(top).at(-1)).toBe(610)
+    // Less than a pixel apart on any screen.
+    expect(xs(top)[1] - xs(top)[0]).toBeCloseTo(600 / (HOVER_STEPS - 1), 12)
+    // The lines stay out of the axis tooltip, so ECharts snaps to the shared instants only.
+    expect(glanceLines(top).every((s) => rec(s.tooltip).show === false)).toBe(true)
+    // Invisible, never hit, and inside the lines' own y range (it must not stretch the axis).
+    const hover = hoverOf(other)
+    expect(hover).toMatchObject({ showSymbol: false, silent: true, lineStyle: { width: 0, opacity: 0 } })
+    expect(new Set((hover.data as [number, number][]).map(([, y]) => y))).toEqual(new Set([4.5]))
+    // A chart with no number at all still gets drawable instants.
+    const empty = hoverOf(glanceChartOption(theme, input({ lines: [{ name: 'x', slot: 0, data: [[0, null]] }] })))
+    expect((empty.data as [number, number][]).every(([x, y]) => Number.isFinite(x) && y === 0)).toBe(true)
   })
 
   it('lists every line in the tooltip, value first, names escaped, real minus signs', () => {
@@ -117,7 +158,7 @@ describe('glanceChartOption', () => {
 
   it('never shows more than 8 lines', () => {
     const lines = Array.from({ length: 10 }, (_, i) => ({ name: `c${i}`, slot: i % 8, data: [] as [number, number | null][] }))
-    expect(list(rec(glanceChartOption(theme, input({ lines }))).series)).toHaveLength(8)
+    expect(glanceLines(glanceChartOption(theme, input({ lines })))).toHaveLength(8)
   })
 })
 
@@ -202,6 +243,67 @@ describe('groundTrackOption', () => {
     expect(html).toContain(`${MINUS}2.5`)
     expect(html).toContain('&lt;i&gt;Latitude&lt;/i&gt;')
     expect(formatter({ seriesIndex: 0, dataIndex: 1 })).toBe('')
+  })
+
+  it('rings the positions a line cannot reach (one-sample segments), with no tooltip', () => {
+    const lone = list(option.series)[2]
+    expect(lone).toMatchObject({ type: 'scatter', silent: true, tooltip: { show: false } })
+    // Both positions of this path sit alone between breaks.
+    expect(lone.data).toEqual([
+      [-2.6, 51.4],
+      [-2.5, 51.5],
+    ])
+    expect(rec(lone.itemStyle)).toMatchObject({ color: theme.surface, borderColor: theme.series[0] })
+  })
+
+  it('marks where the track starts again after a reset, with its time in the tooltip', () => {
+    const withRestart = rec(
+      groundTrackOption(theme, {
+        path: [
+          [-2.6, 51.4],
+          [-2.59, 51.41],
+          [null, null],
+          [-1.2, 52.0],
+          [-1.1, 52.1],
+        ],
+        start: { label: 'Start', lon: -2.6, lat: 51.4, time: 't = 0.00 s' },
+        end: { label: 'End', lon: -1.1, lat: 52.1, time: 't = 900.0 s' },
+        restarts: [{ label: 'Restart', lon: -1.2, lat: 52.0, time: 't = 60.0 s' }],
+        lonRange: [-2.8, -0.9],
+        latRange: [51.3, 52.2],
+        xName: 'Longitude [deg]',
+        yName: 'Latitude [deg]',
+        lonLabel: 'Longitude',
+        latLabel: 'Latitude',
+      }),
+    )
+    const series = list(withRestart.series)
+    expect(series[2].data).toEqual([])
+    expect(series[3]).toMatchObject({ type: 'scatter', symbol: 'triangle', name: 'Restarts' })
+    expect(list(series[3].data)).toEqual([{ value: [-1.2, 52.0], name: 'Restart' }])
+    const formatter = rec(withRestart.tooltip).formatter as (params: unknown) => string
+    expect(formatter({ seriesIndex: 3, dataIndex: 0 })).toContain('Restart · t = 60.0 s')
+    expect(formatter({ seriesIndex: 2, dataIndex: 0 })).toBe('')
+  })
+})
+
+describe('lonePositions', () => {
+  it('finds the positions with no neighbour on either side', () => {
+    expect(
+      lonePositions([
+        [0, 0],
+        [null, null],
+        [1, 1],
+        [2, 2],
+        [null, null],
+        [3, 3],
+      ]),
+    ).toEqual([
+      [0, 0],
+      [3, 3],
+    ])
+    expect(lonePositions([[5, 5]])).toEqual([[5, 5]])
+    expect(lonePositions([])).toEqual([])
   })
 })
 

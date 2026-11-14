@@ -4,21 +4,23 @@
 // Pure logic: timeMath.ts, panelEdit.ts, presets.ts, pointDraft.ts; chart options: charts/options/timePanel.ts and
 // timeStack.ts (export figure); imperative chart glue (zoom sync, drag band): timeController.ts.
 
-import { AlertIcon, ArrowBothIcon, GraphIcon, XIcon, ZoomInIcon, ZoomOutIcon } from '@primer/octicons-react'
+import { AlertIcon, ArrowBothIcon, ClockIcon, GraphIcon, ZoomInIcon, ZoomOutIcon } from '@primer/octicons-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TIME_GRID, type TimeBand, type TimeXInput } from '../../charts/options/timePanel'
-import { seriesColor, useChartTheme } from '../../charts/theme'
+import { useChartTheme } from '../../charts/theme'
 import { ExportMenu, type ExportItem } from '../../components/ExportMenu'
 import { Segmented, type SegmentedOption } from '../../components/Segmented'
 import { formatAxisValue, timeAxis, timeBases } from '../../core/time'
 import type { Dataset, TimeBaseId, Workspace } from '../../core/types'
+import { exportMatlab } from '../../layout/fileActions'
 import { isTypingTarget } from '../../layout/shellModel'
 import { setSelection, setTimeBase, setView, toast, useActiveDataset, useApp, useWorkspace } from '../../store/app'
-import { exportTimeCsv, exportTimeImage, exportTimeMatlab } from './exportTime'
+import { exportTimeCsv, exportTimeImage } from './exportTime'
 import { resolveActive, type PickResult } from './panelEdit'
 import { resolvePresets } from './presets'
 import { SavePointDialog } from './SavePointDialog'
 import { ModeHint, SelectionBar } from './SelectionBar'
+import { SetWindowDialog } from './SetWindowDialog'
 import { TimeController } from './timeController'
 import {
   axisTitle,
@@ -28,12 +30,17 @@ import {
   formatTimeValue,
   rowsToX,
   segmentBreaks,
+  selectionSummary,
+  windowToRows,
   xFrame,
   type StackChrome,
 } from './timeMath'
 import { TimePanelCard, type LaneData, type PointerMode } from './TimePanelCard'
 import { PresetButton, TimeSidebar } from './TimeSidebar'
 import './time.css'
+
+/** One + / − key press or zoom button: halves or doubles the visible span. */
+const ZOOM_STEP = 0.5
 
 /** The pointer mode and the active panel survive switching tabs (the view unmounts). */
 let rememberedMode: PointerMode = 'zoom'
@@ -57,7 +64,7 @@ const MODE_OPTIONS: readonly SegmentedOption<PointerMode>[] = [
         Zoom
       </span>
     ),
-    title: 'Zoom and pan: scroll to zoom, drag to pan (Z)',
+    title: 'Zoom and pan: scroll (or + / −) to zoom, drag to pan (Z)',
   },
   {
     value: 'select',
@@ -67,7 +74,7 @@ const MODE_OPTIONS: readonly SegmentedOption<PointerMode>[] = [
         Select
       </span>
     ),
-    title: 'Select a time window: drag across a plot (S)',
+    title: 'Select a time window: drag across a plot, or type it with Set window (S)',
   },
 ]
 
@@ -92,6 +99,7 @@ function TimeWorkspace({ ds, ws }: { ds: Dataset; ws: Workspace }) {
   const [wantedActive, setWantedActive] = useState<string | null>(() => rememberedActive.get(ds.id) ?? null)
   const [reveal, setReveal] = useState<{ id: string; n: number }>({ id: '', n: 0 })
   const [saving, setSaving] = useState(false)
+  const [settingWindow, setSettingWindow] = useState(false)
   const [available, setAvailable] = useState(0)
   const scrollRef = useRef<HTMLDivElement>(null)
   const activeId = resolveActive(ws.panels, wantedActive)
@@ -130,7 +138,7 @@ function TimeWorkspace({ ds, ws }: { ds: Dataset; ws: Workspace }) {
     [activate, showPanel],
   )
 
-  // Keys: Z / S switch the pointer mode, Esc abandons a drag or clears the selection.
+  // Keys: Z / S switch the pointer mode, + / − zoom about the middle, Esc abandons a drag or clears the selection.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return
@@ -138,6 +146,8 @@ function TimeWorkspace({ ds, ws }: { ds: Dataset; ws: Workspace }) {
       const key = event.key.toLowerCase()
       if (key === 'z' && !event.shiftKey) setMode('zoom')
       else if (key === 's' && !event.shiftKey) setMode('select')
+      else if (event.key === '+' || event.key === '=') controller.zoomBy(0.5, ZOOM_STEP)
+      else if (event.key === '-' || event.key === '_') controller.zoomBy(0.5, 1 / ZOOM_STEP)
       else if (event.key === 'Escape') {
         if (!controller.cancelDrag()) {
           if (!useApp.getState().selection) return
@@ -178,13 +188,15 @@ function TimeWorkspace({ ds, ws }: { ds: Dataset; ws: Workspace }) {
   )
   const shownPoints = useMemo(() => ws.points.filter((p) => !p.hidden), [ws.points])
   const groups = useMemo(() => new Map(ws.groups.map((g) => [g.id, g])), [ws.groups])
+  // Test-point windows are a neutral wash in the plots: there, hue means a channel's line. The group colour stays on
+  // the lane above the first panel.
   const bands = useMemo<TimeBand[]>(
     () =>
       shownPoints.map((p) => {
         const [x0, x1] = rowsToX(axis, frame, [p.start, p.end])
-        return { x0, x1, color: seriesColor(theme, groups.get(p.groupId)?.slot ?? 0) }
+        return { x0, x1, color: theme.textMuted }
       }),
-    [shownPoints, axis, frame, theme, groups],
+    [shownPoints, axis, frame, theme],
   )
   const lane = useMemo<LaneData | null>(() => {
     if (!shownPoints.length && !boundaries.length) return null
@@ -208,12 +220,33 @@ function TimeWorkspace({ ds, ws }: { ds: Dataset; ws: Workspace }) {
     }
   }, [shownPoints, boundaries, axis, frame, groups])
   const selectionX = useMemo(() => (selection ? rowsToX(axis, frame, selection) : null), [selection, axis, frame])
+  // Spoken (polite) when the selection changes, however it was made: drag, Set window, Undo, another tab.
+  const selectionSpoken = useMemo(() => {
+    if (!selection) return ''
+    const summary = selectionSummary(ds, axis, selection)
+    return `Selected ${summary.range}, ${summary.duration}, ${summary.rows}.`
+  }, [ds, axis, selection])
 
   return (
     <div className="view-split tv-split">
       <TimeSidebar ds={ds} ws={ws} activePanelId={activeId} onPicked={onPicked} onPreset={showPanel} />
       <div className="tv-main">
-        <TimeToolbar ds={ds} ws={ws} mode={mode} onMode={setMode} controller={controller} />
+        <TimeToolbar
+          ds={ds}
+          ws={ws}
+          mode={mode}
+          onMode={setMode}
+          controller={controller}
+          onSetWindow={() => setSettingWindow(true)}
+        />
+        <p className="sr-only" role="status">
+          {selectionSpoken}
+        </p>
+        <p className="sr-only" role="status">
+          {mode === 'select'
+            ? 'Select mode: drag across a plot to select a time window, or use Set window to type it.'
+            : 'Zoom mode: scroll or press plus and minus to zoom, drag to pan.'}
+        </p>
         <div ref={scrollRef} className="tv-scroll">
           <div className="tv-content">
             <div className="tv-status">
@@ -267,6 +300,16 @@ function TimeWorkspace({ ds, ws }: { ds: Dataset; ws: Workspace }) {
       {saving && selection && (
         <SavePointDialog ds={ds} ws={ws} axis={axis} range={selection} onClose={() => setSaving(false)} />
       )}
+      {settingWindow && (
+        <SetWindowDialog
+          ds={ds}
+          axis={axis}
+          frame={frame}
+          initial={selection ?? windowToRows(axis, frame, controller.getWindow())}
+          onZoom={(rows) => controller.zoomToRows(rows, 0)}
+          onClose={() => setSettingWindow(false)}
+        />
+      )}
     </div>
   )
 }
@@ -279,15 +322,16 @@ function TimeToolbar({
   mode,
   onMode,
   controller,
+  onSetWindow,
 }: {
   ds: Dataset
   ws: Workspace
   mode: PointerMode
   onMode: (mode: PointerMode) => void
   controller: TimeController
+  onSetWindow: () => void
 }) {
   const view = useApp((s) => s.view)
-  const selection = useApp((s) => s.selection)
   const bases = timeBases(ds)
   const axis = timeAxis(ds, ws.timeBase)
   const fallback = axis.id !== ws.timeBase ? bases.find((b) => b.id === ws.timeBase) : undefined
@@ -322,13 +366,10 @@ function TimeToolbar({
     },
     {
       section: 'MATLAB',
-      label: 'MATLAB script',
+      label: 'MATLAB script: this plot only',
       hint: 'Re-plots these panels from the log (keep it next to the file)',
       disabled: empty,
-      onSelect: () => {
-        const name = exportTimeMatlab(ds, ws, useApp.getState().view)
-        toast(`Saved ${name}. Run it in MATLAB from the folder that holds ${ds.name}.`, 'success')
-      },
+      onSelect: () => void exportMatlab({ part: 'time', view: useApp.getState().view }),
     },
   ]
 
@@ -363,22 +404,23 @@ function TimeToolbar({
       <button
         type="button"
         className="btn btn-ghost btn-sm"
+        title="Type the start and end of a time window, then select it or zoom to it"
+        data-testid="set-window-button"
+        disabled={empty}
+        onClick={onSetWindow}
+      >
+        <ClockIcon size={16} />
+        <span className="tv-collapse">Set window…</span>
+      </button>
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
         disabled={view === null}
         title="Show the whole log (or double-click a plot)"
         onClick={() => controller.resetZoom()}
       >
         <ZoomOutIcon size={16} />
         <span className="tv-collapse">Reset zoom</span>
-      </button>
-      <button
-        type="button"
-        className="btn btn-ghost btn-sm"
-        disabled={selection === null}
-        title="Clear the selection (Esc)"
-        onClick={() => setSelection(null)}
-      >
-        <XIcon size={16} />
-        <span className="tv-collapse">Clear selection</span>
       </button>
       <div className="view-toolbar-spacer" />
       <ExportMenu items={items} disabled={empty} />

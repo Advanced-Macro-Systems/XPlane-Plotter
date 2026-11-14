@@ -4,6 +4,7 @@ import { computeStats } from '../../core/dataset'
 import type { Channel, Dataset, Segment, TimeAxis } from '../../core/types'
 import {
   MS_PER_HOUR,
+  axisInputText,
   axisTitle,
   boundaryMarks,
   cachedSeriesData,
@@ -17,10 +18,13 @@ import {
   interleaveSeries,
   isWholeWindow,
   laneLabels,
+  levelFor,
   medianStep,
+  minMaxLevels,
   nearestRow,
   normalizeWindow,
   paddedWindow,
+  parseAxisInput,
   rowsToWindow,
   rowsToX,
   sameRows,
@@ -235,10 +239,12 @@ describe('time formatting', () => {
     expect(formatTimeTick(xFrame(elapsed), 120)).toBe('120')
     expect(formatTimeTick(xFrame(elapsed), -0.30000000000000004)).toBe(`${MINUS}0.3`)
     expect(formatTimeTick(xFrame(clock), 14.5 * MS_PER_HOUR)).toBe('14:30:00')
-    expect(formatTimeRange(elapsed, 120.43, 132.71)).toBe('t = 120.4 → 132.7 s')
-    expect(formatTimeRange(elapsed, 1.234, 3.456)).toBe('t = 1.23 → 3.46 s')
-    expect(formatTimeRange(rows, 1200, 1322)).toBe('rows 1200 → 1322')
-    expect(formatTimeRange(clock, 14.5, 14.5 + 12 / 3600)).toBe('14:30:00 → 14:30:12')
+    expect(formatTimeRange(elapsed, 120.43, 132.71)).toBe('120.4 – 132.7 s')
+    expect(formatTimeRange(elapsed, 1.234, 3.456)).toBe('1.23 – 3.46 s')
+    expect(formatTimeRange(elapsed, 3.2, 478.5)).toBe('3.2 – 478.5 s')
+    expect(formatTimeRange(elapsed, -2.5, 30)).toBe(`${MINUS}2.5 – 30.0 s`)
+    expect(formatTimeRange(rows, 1200, 1322)).toBe('rows 1200–1322')
+    expect(formatTimeRange(clock, 14.5, 14.5 + 12 / 3600)).toBe('14:30:00 – 14:30:12')
   })
 
   it('labels the figure ends only when they are round numbers', () => {
@@ -257,6 +263,92 @@ describe('time formatting', () => {
   })
 })
 
+describe('level of detail', () => {
+  /** Interleaved [x, y] pairs. */
+  const pairs = (ys: readonly number[], x0 = 0) => Float64Array.from(ys.flatMap((y, i) => [x0 + i, y]))
+  const points = (data: Float64Array) => Array.from({ length: data.length / 2 }, (_, i) => [data[2 * i], data[2 * i + 1]])
+
+  it('halves each level, keeping every bucket’s lowest and highest point in time order', () => {
+    const base = pairs([0, 5, 1, 2, 3, -4, 3, 3])
+    const levels = minMaxLevels(base, 1)
+    expect(levels[0]).toBe(base)
+    expect(points(levels[1])).toEqual([
+      [0, 0],
+      [1, 5],
+      [4, 3],
+      [5, -4],
+    ])
+    // Coarser levels keep the extremes.
+    const last = points(levels[levels.length - 1])
+    expect(Math.max(...last.map((p) => p[1]))).toBe(5)
+    expect(Math.min(...last.map((p) => p[1]))).toBe(-4)
+  })
+
+  it('never merges across a break and stops at the floor', () => {
+    const base = Float64Array.from([0, 1, 1, 9, 2, 3, 3, 4, 3.5, NaN, 4, -9, 5, 2, 6, 0, 7, 1])
+    const [, half] = minMaxLevels(base, 1)
+    expect(points(half)).toEqual([
+      [0, 1],
+      [1, 9],
+      [3.5, NaN],
+      [4, -9],
+      [5, 2],
+    ])
+    const long = pairs(Array.from({ length: 10_000 }, (_, i) => Math.sin(i / 50)))
+    const levels = minMaxLevels(long, 1024)
+    expect(levels.at(-1)!.length / 2).toBeLessThanOrEqual(1024)
+    expect(levels.length).toBeGreaterThan(3)
+    for (let k = 1; k < levels.length; k += 1) expect(levels[k].length).toBeLessThan(levels[k - 1].length)
+  })
+
+  it('picks the coarsest level that still gives two points per pixel in the window', () => {
+    const lengths = [400_000, 200_000, 100_000, 50_000, 25_000] // 200k, 100k, 50k, 25k, 12.5k points
+    expect(levelFor(lengths, 1, 1000)).toBe(4) // 12.5k points across 1000 px
+    expect(levelFor(lengths, 0.1, 1000)).toBe(3) // 2.5k points in the window
+    expect(levelFor(lengths, 0.01, 1000)).toBe(0) // only the full data resolves 1% of the log
+    expect(levelFor([400], 1, 1000)).toBe(0)
+  })
+})
+
+describe('typed times (Set window)', () => {
+  const elapsed = elapsedAxis(ramp(201, 0.5)) // 0..100 s at 2 Hz
+  const rows: TimeAxis = { id: 'index', label: 'Row number', unit: '', values: ramp(10, 1) }
+  const clock: TimeAxis = { id: 'ch:_zulu,_time', label: 'Zulu clock', unit: 'h', clock: true, values: ramp(10, 0.01, 14.5) }
+  const midnight: TimeAxis = { id: 'ch:_zulu,_time', label: 'Zulu clock', unit: 'h', clock: true, values: ramp(10, 0.05, 23.8) }
+
+  it('reads numbers on second and row axes, with or without the unit', () => {
+    expect(parseAxisInput(elapsed, '120')).toBe(120)
+    expect(parseAxisInput(elapsed, ' 12.5 s ')).toBe(12.5)
+    expect(parseAxisInput(elapsed, `${MINUS}3`)).toBe(-3)
+    expect(parseAxisInput(elapsed, '1,5')).toBe(1.5)
+    expect(parseAxisInput(rows, 'row 42')).toBe(42)
+    expect(parseAxisInput(elapsed, '')).toBeNull()
+    expect(parseAxisInput(elapsed, 'abc')).toBeNull()
+    expect(parseAxisInput(elapsed, '12:30')).toBeNull()
+  })
+
+  it('reads clock times, on the day the axis covers', () => {
+    expect(parseAxisInput(clock, '14:30')).toBeCloseTo(14.5)
+    expect(parseAxisInput(clock, '14:30:36')).toBeCloseTo(14.51)
+    expect(parseAxisInput(clock, '14:30:36.5')).toBeCloseTo(14.5 + 36.5 / 3600)
+    expect(parseAxisInput(clock, '120')).toBeNull()
+    expect(parseAxisInput(clock, '25:00')).toBeNull()
+    // The axis runs from 23:48 past midnight (values above 24 h): 00:10 is the next day.
+    expect(parseAxisInput(midnight, '00:10')).toBeCloseTo(24 + 10 / 60)
+    expect(parseAxisInput(midnight, '23:50')).toBeCloseTo(23 + 50 / 60)
+  })
+
+  it('writes axis values for editing', () => {
+    expect(axisInputText(elapsed, 12.25, 0.5)).toBe('12.3')
+    expect(axisInputText(elapsed, 12.25, 0.05)).toBe('12.25')
+    expect(axisInputText(rows, 41.6, 1)).toBe('42')
+    expect(axisInputText(clock, 14.5, 0.01)).toBe('14:30:00')
+    expect(axisInputText(elapsed, NaN, 1)).toBe('')
+    // What it writes reads back.
+    expect(parseAxisInput(clock, axisInputText(clock, 14.51, 0.01))).toBeCloseTo(14.51)
+  })
+})
+
 describe('selection readout', () => {
   const elapsed = ramp(121) // 0..60 s at 2 Hz
   const kias = channel('_Vind,_kias', 'KIAS', 'kt', Array.from(elapsed, (t) => 250 + t / 60))
@@ -265,7 +357,7 @@ describe('selection readout', () => {
 
   it('summarises a selection', () => {
     expect(selectionSummary(ds, elapsedAxis(elapsed), [20, 45])).toEqual({
-      range: 't = 10.0 → 22.0 s',
+      range: '10.0 – 22.0 s',
       duration: '12.0 s',
       rows: '25 rows',
     })

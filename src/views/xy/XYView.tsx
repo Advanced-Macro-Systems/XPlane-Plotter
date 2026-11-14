@@ -11,10 +11,10 @@ import { readChartTheme } from '../../charts/theme'
 import { ExportMenu, type ExportItem } from '../../components/ExportMenu'
 import { useTimeAxis } from '../../components/hooks'
 import { downloadText } from '../../core/export/download'
-import { matlabScript, matlabScriptName } from '../../core/export/matlab'
 import { formatAxisValue } from '../../core/time'
 import type { Dataset, RowRange, TimeAxis, Workspace } from '../../core/types'
-import { getWorkspace, toast, useActiveDataset, useApp, useWorkspace } from '../../store/app'
+import { exportMatlab } from '../../layout/fileActions'
+import { toast, useActiveDataset, useApp, useWorkspace } from '../../store/app'
 import { XYChartCard } from './XYChart'
 import { XYSidebar } from './XYSidebar'
 import { XYResults } from './XYResults'
@@ -137,33 +137,18 @@ function XYWorkspace({ ds, ws, axis }: { ds: Dataset; ws: Workspace; axis: TimeA
     },
     {
       section: 'MATLAB',
-      label: 'MATLAB script',
+      label: 'MATLAB script: this plot only',
       hint: 'Re-reads the log; this plot and the test-point table',
       disabled: !data.x || !data.ys.length,
-      onSelect: () => {
-        const current = getWorkspace() ?? ws
-        try {
-          const script = matlabScript({
-            ds,
-            ws: current,
-            include: { points: true, xy: true, time: false, modes: false },
-            view: useApp.getState().view,
-            modeRows: null,
-          })
-          const name = matlabScriptName(ds.name)
-          downloadText(name, script, 'text/plain')
-          toast(`Saved ${name}. Put it next to ${ds.name} and run it in MATLAB: figures and tables go to ./out/.`, 'success')
-        } catch (error) {
-          toast(`Could not write the MATLAB script: ${error instanceof Error ? error.message : String(error)}`, 'error')
-        }
-      },
+      // The axis ranges shown go with it: a fit through the samples leaves out the same off-axis samples there.
+      onSelect: () => void exportMatlab({ part: 'xy', xyLimits: extent }),
     },
   ]
 
   return (
     <div className="view-split xy">
       <XYSidebar ds={ds} ws={ws} view={view} data={data} defaults={defaults} />
-      <main className="view-main xy-main">
+      <div className="view-main xy-main">
         <div className="xy-stage">
           <header className="xy-heading">
             <div className="xy-heading-text">
@@ -197,7 +182,7 @@ function XYWorkspace({ ds, ws, axis }: { ds: Dataset; ws: Workspace; axis: TimeA
           )}
         </div>
         {!data.empty && <XYResults data={data} fits={fits} fit={xy.fit} />}
-      </main>
+      </div>
     </div>
   )
 }

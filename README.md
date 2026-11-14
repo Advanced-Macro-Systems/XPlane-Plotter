@@ -19,6 +19,7 @@ and propulsion-only control.
   and recording gaps are detected and marked.
 - **Test points.** Drag across the plots to select a steady window and save it as a test point in a colour-coded group. The
   table shows mean ± σ for the channels you choose, with a drift check that flags windows which were not steady.
+  Deleting a point (or a panel) can be undone from its message or with Ctrl+Z (⌘Z on a Mac).
 - **X–Y plots.** Any channel against any other, using all data, the zoom range or the test points. Test points are shown as
   means with ±σ error bars. Linear, quadratic and cubic fits report the equation, R² and standard errors. Presets include
   the lift curve, drag polar, elevator-to-trim vs CL (static stability), thrust and drag vs TAS, and the ground track.

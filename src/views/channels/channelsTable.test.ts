@@ -14,6 +14,8 @@ import {
   groupOptions,
   nextSort,
   sortRows,
+  statText,
+  statTitle,
   type ChannelFilter,
 } from './channelsTable'
 
@@ -156,11 +158,34 @@ describe('counts', () => {
     expect(channelCounts(rows)).toEqual({ total: 5, constant: 2, unknown: 3, formulas: 1 })
   })
 
-  it('says how many are shown when filtered', () => {
-    const counts = channelCounts(rows)
-    expect(countsText(counts, 5)).toBe('5 channels · 2 constant · 3 unknown · 1 formula')
-    expect(countsText(counts, 2)).toBe('2 of 5 channels · 2 constant · 3 unknown · 1 formula')
+  it('counts the rows shown, out of the whole file, when filtered', () => {
+    expect(countsText(channelCounts(rows), 5)).toBe('5 channels · 2 constant · 3 unknown · 1 formula')
+    // KIAS and the formula: neither constant nor unknown, whatever the rest of the file holds.
+    expect(countsText(channelCounts([rows[0], rows[4]]), 5)).toBe('2 of 5 channels · 0 constant · 0 unknown · 1 formula')
+    expect(countsText(channelCounts(rows.slice(1, 3)), 5)).toBe('2 of 5 channels · 1 constant · 2 unknown')
     expect(countsText({ total: 1, constant: 0, unknown: 0, formulas: 0 }, 1)).toBe('1 channel · 0 constant · 0 unknown')
+  })
+})
+
+describe('statistics in the narrow number columns', () => {
+  it('keeps 4 significant figures and writes small magnitudes as exponents, so nothing is cut', () => {
+    expect(statText(0.00031416)).toBe('3.142e−4')
+    expect(statText(-0.00071234)).toBe('−7.123e−4')
+    expect(statText(-4.2516e-7)).toBe('−4.252e−7')
+    expect(statText(0.0061234)).toBe('0.006123')
+    expect(statText(12000.4)).toBe('12000')
+    expect(statText(123456.7)).toBe('123457')
+    expect(statText(-512345678)).toBe('−5.123e8')
+    expect(statText(2e6)).toBe('2e6')
+    expect(statText(-250.256)).toBe('−250.3')
+    expect(statText(0)).toBe('0')
+    expect(statText(Number.NaN)).toBe('—')
+    for (const v of [0.00031416, -0.00071234, -4.2516e-7, 123456.7, -98765.4321, 1.5e12]) expect(statText(v).length).toBeLessThanOrEqual(10)
+  })
+
+  it('gives the value to 7 figures in the tooltip', () => {
+    expect(statTitle(0.00031416)).toBe('0.00031416')
+    expect(statTitle(-250.256)).toBe('−250.256')
   })
 })
 

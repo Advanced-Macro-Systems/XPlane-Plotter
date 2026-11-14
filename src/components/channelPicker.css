@@ -96,6 +96,13 @@
   background: var(--btn-bg);
   outline: none;
 }
+/* The keyboard position (the option the search box's arrows are on, or a focused option) gets the focus ring: the
+   tint alone is about 1.1:1. */
+.cp-option-cursor,
+.cp-option:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
 .cp-option[aria-selected='true'] .cp-label {
   font-weight: 600;
 }

@@ -25,6 +25,8 @@ export interface FitCoefficient {
 export interface FitRow {
   key: string
   name: string
+  /** A test-point group's fit (its name is the group's), not a channel's */
+  grouped: boolean
   /** The fitted Y channel's title ("Elevator [deg]") */
   yTitle: string
   slot: number
@@ -56,6 +58,7 @@ export function fitRows(data: XYData, fits: readonly XYFit[]): FitRow[] {
     const base = {
       key: f.key,
       name: f.name,
+      grouped: f.group !== null,
       yTitle: channelTitle(f.y.ch),
       slot: f.slot,
       degree: f.degree,
@@ -73,6 +76,16 @@ export function fitRows(data: XYData, fits: readonly XYFit[]): FitRow[] {
     }
     return { ...base, problem: '', equation, r2: fit.r2, rmse: fit.rmse, n: fit.n, coefficients }
   })
+}
+
+/**
+ * The text of a fit's chip under the plot. With several fits each says whose it is, so the colour dot is never the only
+ * clue: a group's fit starts with the group ("Trim points: δe = …"; a channel's equation already starts with the
+ * channel), and a fit that could not be made names the one that failed ("Trim points: Needs 2 or more …").
+ */
+export function equationText(row: Pick<FitRow, 'name' | 'grouped' | 'equation' | 'problem'>, several: boolean): string {
+  if (row.problem) return several ? `${row.name}: ${row.problem}` : row.problem
+  return several && row.grouped ? `${row.name}: ${row.equation}` : row.equation
 }
 
 /** A spreadsheet number: shortest round-trip digits with an ASCII minus; '' for NaN/∞. */

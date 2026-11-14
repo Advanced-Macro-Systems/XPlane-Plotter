@@ -13,6 +13,7 @@ import type {
   Workspace,
   XYConfig,
 } from '../types'
+import { safeFilename } from './download'
 
 export interface SessionFile {
   app: 'xplane-plotter'
@@ -28,10 +29,30 @@ export const SESSION_APP = 'xplane-plotter'
 /** Newest session format this build reads and the one it writes. */
 export const SESSION_VERSION = 1
 
-/** Session files hold settings only (a few kB); anything this large is the wrong file. */
-const MAX_SESSION_CHARS = 20_000_000
+/**
+ * Session files hold settings only (a few kB; well under 3 MB even at the limits below), so anything this large is the
+ * wrong file — or one made to freeze the page.
+ */
+const MAX_SESSION_CHARS = 5_000_000
+/**
+ * A file larger than this (bytes) holds more than MAX_SESSION_CHARS characters whatever its encoding: callers can
+ * turn it away by its size, before reading it.
+ */
+export const MAX_SESSION_BYTES = 3 * MAX_SESSION_CHARS
+
+/**
+ * Most items a session may hold. Far more than a flight-test campaign needs, and small enough that the Test points
+ * table, the formulas and the panels of an imported session render without freezing the page.
+ */
+export const SESSION_LIMITS = { points: 2000, groups: 200, derived: 500, panels: 100 } as const
 
 const NOT_A_SESSION = 'This is not an X-Plane Plotter session file'
+
+/** The session file's name for a log: "Data_run1.txt" -> "Data_run1.xpp-session.json". */
+export function sessionFileName(datasetName: string): string {
+  const stem = datasetName.replace(/\.[A-Za-z0-9]{1,5}$/, '') || datasetName
+  return `${safeFilename(stem, 'session')}.xpp-session.json`
+}
 
 export function serializeSession(ds: Dataset, ws: Workspace): string {
   const file: SessionFile = {
@@ -158,15 +179,31 @@ function checkVersion(value: unknown, what: string): void {
 
 // ------------------------------------------------------------------ the workspace
 
+/** A list with at most `max` items; more is refused with a message that says how many (see SESSION_LIMITS). */
+function limited(value: unknown, path: string, max: number, what: string): unknown[] {
+  const items = list(value, path)
+  if (items.length > max) {
+    throw new Error(
+      `This session has ${items.length.toLocaleString('en-GB')} ${what}; X-Plane Plotter reads at most ` +
+        `${max.toLocaleString('en-GB')}.`,
+    )
+  }
+  return items
+}
+
 function parseWorkspace(input: Record<string, unknown>): Workspace {
   checkVersion(input.version, 'workspace')
+  const panels = limited(input.panels, 'workspace.panels', SESSION_LIMITS.panels, 'plot panels')
+  const groups = limited(input.groups, 'workspace.groups', SESSION_LIMITS.groups, 'test-point groups')
+  const points = limited(input.points, 'workspace.points', SESSION_LIMITS.points, 'test points')
+  const derived = limited(input.derived, 'workspace.derived', SESSION_LIMITS.derived, 'formulas')
   return {
     version: 1,
     timeBase: parseTimeBase(input.timeBase),
-    panels: list(input.panels, 'workspace.panels').map((p, i) => parsePanel(p, `workspace.panels[${i}]`)),
-    groups: list(input.groups, 'workspace.groups').map((g, i) => parseGroup(g, `workspace.groups[${i}]`)),
-    points: list(input.points, 'workspace.points').map((p, i) => parsePoint(p, `workspace.points[${i}]`)),
-    derived: list(input.derived, 'workspace.derived').map((d, i) => parseDerived(d, `workspace.derived[${i}]`)),
+    panels: panels.map((p, i) => parsePanel(p, `workspace.panels[${i}]`)),
+    groups: groups.map((g, i) => parseGroup(g, `workspace.groups[${i}]`)),
+    points: points.map((p, i) => parsePoint(p, `workspace.points[${i}]`)),
+    derived: derived.map((d, i) => parseDerived(d, `workspace.derived[${i}]`)),
     xy: parseXY(record(input.xy, 'workspace.xy')),
     modes: parseModes(record(input.modes, 'workspace.modes')),
     tracked: strList(input.tracked, 'workspace.tracked'),

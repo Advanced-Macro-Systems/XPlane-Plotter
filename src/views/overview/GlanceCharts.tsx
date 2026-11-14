@@ -1,6 +1,7 @@
 // "Flight at a glance": up to three compact stacked charts (altitude, airspeed, attitude — or the file's first plain
 // channels) over the whole log, sharing the time axis and crosshair (one ECharts group), with sim resets / recording
-// gaps marked and the test points as faint bands in their group colours.
+// gaps marked and the test points as faint neutral bands (as in Time history: a band in a group's colour would compete
+// with the line of that colour).
 
 import { useMemo, type CSSProperties } from 'react'
 import { EChart } from '../../charts/EChart'
@@ -97,13 +98,9 @@ export function GlanceCharts({ ds, ws }: { ds: Dataset; ws: Workspace | null }) 
         <div className="ov-glance-foot">
           {shownGroups.length > 0 && (
             <span className="ov-glance-key">
+              <span className="ov-glance-band" aria-hidden="true" />
               <span className="ov-glance-key-label">Test points</span>
-              {shownGroups.map((g) => (
-                <span key={g.id} className={`chip slot-${g.slot} ov-glance-group`}>
-                  <span className="chip-dot" aria-hidden="true" />
-                  {g.name}
-                </span>
-              ))}
+              {shownGroups.map((g) => g.name).join(', ')}
             </span>
           )}
           {markers.length > 0 && (
@@ -140,7 +137,7 @@ function GlancePanel({
   first: boolean
   last: boolean
   markers: { x: number; label: string }[]
-  bands: { from: number; to: number; slot: number }[]
+  bands: { from: number; to: number }[]
 }) {
   const { spec, lines } = panel
   const labelMarkers = first && markers.length > 0

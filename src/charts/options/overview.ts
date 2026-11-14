@@ -8,8 +8,19 @@ import { baseOption, mergeOptions, seriesColor, valueAxis, type ChartTheme } fro
 /** Most lines in one chart (the categorical palette has 8 slots; a 9th colour is never made up). */
 const MAX_LINES = 8
 
-/** Test points show as faint bands of their group's colour behind the lines. */
-const BAND_OPACITY = 0.13
+/**
+ * Test points show as faint neutral bands behind the lines, as in Time history: a band in a group's colour would
+ * compete with the line of the same colour, and a warm slot would tint the plot like a warning.
+ */
+const BAND_OPACITY = 0.12
+
+/**
+ * Instants the glance crosshair can rest on: this many evenly spaced times from xMin to xMax, the same in every chart
+ * of the stack (more than a plot is wide in pixels, so the steps stay below one pixel).
+ */
+export const HOVER_STEPS = 2001
+/** Series id of the invisible series that carries those instants. */
+export const HOVER_SERIES_ID = 'glance-hover'
 
 // ------------------------------------------------------------------ "Flight at a glance"
 
@@ -36,8 +47,8 @@ export interface GlanceChartInput {
   markers: { x: number; label: string }[]
   /** Write the markers' labels (the top chart only, so they are not repeated) */
   labelMarkers: boolean
-  /** Test points as [from, to] time bands in their group's colour slot */
-  bands: { from: number; to: number; slot: number }[]
+  /** Test points as [from, to] time bands (drawn neutral, whatever their group) */
+  bands: { from: number; to: number }[]
   /** Tooltip header for the hovered time */
   formatX: (x: number) => string
 }
@@ -61,24 +72,31 @@ export function glanceChartOption(theme: ChartTheme, input: GlanceChartInput): E
   const unitSuffix = input.unit ? ` ${input.unit}` : ''
   const labelled = input.labelMarkers && input.markers.length > 0
 
-  const series = lines.map((line, i) => {
-    const color = seriesColor(theme, line.slot)
-    return {
-      type: 'line',
-      name: line.name,
-      data: line.data,
-      showSymbol: false,
-      symbol: 'none',
-      sampling: 'lttb',
-      connectNulls: false,
-      color,
-      lineStyle: { width: 1.5, color },
-      emphasis: { disabled: true },
-      z: 3,
-      // The bands and markers belong to the chart, not a line: carried by the first series.
-      ...(i === 0 ? { markArea: bandsArea(theme, input.bands), markLine: markerLines(theme, input.markers, labelled) } : {}),
-    }
-  })
+  // The charts of the stack are linked (echarts.connect), and an axis tooltip snaps to the nearest sample of the
+  // series it involves. Each line is decimated on its own, so snapping to the lines would give every chart its own
+  // instant (and a linked chart that cannot place the hovered sample shows no tooltip at all). So the lines stay out
+  // of the tooltip, and an invisible series with the same instants in every chart (series 0, so the sample a linked
+  // chart is handed is the same one there) is what the crosshair snaps to. The formatter reads each line at that time.
+  const series = [
+    hoverSeries(input, lines, labelled, theme),
+    ...lines.map((line) => {
+      const color = seriesColor(theme, line.slot)
+      return {
+        type: 'line',
+        name: line.name,
+        data: line.data,
+        showSymbol: false,
+        symbol: 'none',
+        sampling: 'lttb',
+        connectNulls: false,
+        color,
+        lineStyle: { width: 1.5, color },
+        emphasis: { disabled: true },
+        tooltip: { show: false },
+        z: 3,
+      }
+    }),
+  ]
 
   return mergeOptions(baseOption(theme), {
     grid: {
@@ -118,6 +136,46 @@ export function glanceChartOption(theme: ChartTheme, input: GlanceChartInput): E
 }
 
 /**
+ * The invisible series of hover instants (HOVER_STEPS times from xMin to xMax). Its y sits inside the lines' own range,
+ * so it never stretches the axis yet always has a point to put a linked chart's tooltip at. It also carries the
+ * test-point bands and the segment markers, which belong to the chart rather than to a line.
+ */
+function hoverSeries(
+  input: GlanceChartInput,
+  lines: readonly GlanceLine[],
+  labelled: boolean,
+  theme: ChartTheme,
+): Record<string, unknown> {
+  let lo = Infinity
+  let hi = -Infinity
+  for (const line of lines) {
+    for (const [, y] of line.data) {
+      if (y === null || !Number.isFinite(y)) continue
+      if (y < lo) lo = y
+      if (y > hi) hi = y
+    }
+  }
+  const y = lo <= hi ? (lo + hi) / 2 : 0
+  const span = input.xMax - input.xMin
+  const last = HOVER_STEPS - 1
+  const data = new Array<[number, number]>(HOVER_STEPS)
+  for (let i = 0; i <= last; i += 1) data[i] = [i === last ? input.xMax : input.xMin + (span * i) / last, y]
+  return {
+    id: HOVER_SERIES_ID,
+    type: 'line',
+    data,
+    showSymbol: false,
+    symbol: 'none',
+    lineStyle: { width: 0, opacity: 0 },
+    silent: true,
+    emphasis: { disabled: true },
+    z: 1,
+    markArea: bandsArea(theme, input.bands),
+    markLine: markerLines(theme, input.markers, labelled),
+  }
+}
+
+/**
  * The y of the sample nearest to `x` in [x, y] pairs sorted by x: null inside a gap (a missing sample on either side
  * of x), outside the data, or when x is not a number.
  */
@@ -150,7 +208,7 @@ function bandsArea(theme: ChartTheme, bands: GlanceChartInput['bands']): Record<
     label: { show: false },
     emphasis: { disabled: true },
     data: bands.map((band) => [
-      { xAxis: band.from, itemStyle: { color: seriesColor(theme, band.slot), opacity: BAND_OPACITY } },
+      { xAxis: band.from, itemStyle: { color: theme.textMuted, opacity: BAND_OPACITY } },
       { xAxis: band.to },
     ]),
   }
@@ -205,6 +263,25 @@ export interface GroundTrackInput {
   /** Tooltip row labels */
   lonLabel: string
   latLabel: string
+  /**
+   * Where the track starts again after a sim reset or a recording gap (its first sample there), marked "Restart" with
+   * a hollow triangle: a reset can put the aircraft somewhere else, so the line does not simply run on.
+   */
+  restarts?: GroundTrackEnd[]
+}
+
+/**
+ * Positions of the path that have no neighbour to draw a line to (a segment of a single sample, such as the moment
+ * logged before a sim reload): a line series would not show them at all, so they are drawn as small rings.
+ */
+export function lonePositions(path: GroundTrackInput['path']): [number, number][] {
+  const fix = (p: readonly [number | null, number | null] | undefined) => p !== undefined && p[0] !== null && p[1] !== null
+  const lone: [number, number][] = []
+  for (let i = 0; i < path.length; i += 1) {
+    const [lon, lat] = path[i]
+    if (lon !== null && lat !== null && !fix(path[i - 1]) && !fix(path[i + 1])) lone.push([lon, lat])
+  }
+  return lone
 }
 
 /** Plot insets of the ground track; the component needs them to work out the plot's aspect ratio. */
@@ -253,6 +330,7 @@ export function keepLabelInside(
 export function groundTrackOption(theme: ChartTheme, input: GroundTrackInput): EChartsOption {
   const color = seriesColor(theme, 0)
   const ends = [input.start, input.end]
+  const restarts = input.restarts ?? []
   const cosLat = Math.cos((((input.latRange[0] + input.latRange[1]) / 2) * Math.PI) / 180)
   const sides = ends.map((end, i) =>
     keepLabelInside(endLabelSide(input.path, i === 0 ? 'start' : 'end', cosLat), end, input.lonRange, input.latRange),
@@ -273,7 +351,8 @@ export function groundTrackOption(theme: ChartTheme, input: GroundTrackInput): E
       trigger: 'item',
       formatter: (raw: unknown) => {
         const p = raw as { seriesIndex?: number; dataIndex?: number }
-        const end = p.seriesIndex === 1 ? ends[p.dataIndex ?? -1] : undefined
+        // Series 1 holds the start and end, series 3 the restarts (the line and the lone rings have no tooltip).
+        const end = p.seriesIndex === 1 ? ends[p.dataIndex ?? -1] : p.seriesIndex === 3 ? restarts[p.dataIndex ?? -1] : undefined
         if (!end) return ''
         return (
           tooltipHeader(`${end.label} · ${end.time}`) +
@@ -318,6 +397,37 @@ export function groundTrackOption(theme: ChartTheme, input: GroundTrackInput): E
           fontFamily: theme.font,
           fontSize: theme.fontSize,
           fontWeight: 600,
+        },
+        labelLayout: { hideOverlap: true },
+        emphasis: { scale: 1.25 },
+        z: 4,
+      },
+      {
+        type: 'scatter',
+        name: 'Lone positions',
+        data: lonePositions(input.path),
+        symbol: 'circle',
+        symbolSize: 6,
+        itemStyle: { color: theme.surface, borderColor: color, borderWidth: 1.5 },
+        silent: true,
+        tooltip: { show: false },
+        z: 3,
+      },
+      {
+        type: 'scatter',
+        name: 'Restarts',
+        data: restarts.map((restart) => ({ value: [restart.lon, restart.lat], name: restart.label })),
+        symbol: 'triangle',
+        symbolSize: 10,
+        itemStyle: { color: theme.surface, borderColor: color, borderWidth: 2 },
+        label: {
+          show: true,
+          formatter: (params: { name?: string }) => params.name ?? '',
+          position: 'right',
+          distance: 6,
+          color: theme.textMuted,
+          fontFamily: theme.font,
+          fontSize: theme.fontSize - 1,
         },
         labelLayout: { hideOverlap: true },
         emphasis: { scale: 1.25 },

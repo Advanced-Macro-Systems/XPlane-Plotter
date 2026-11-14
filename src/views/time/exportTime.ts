@@ -5,7 +5,6 @@ import { channelTitle } from '../../core/channels'
 import { channelById } from '../../core/dataset'
 import { datasetCsv } from '../../core/export/csv'
 import { downloadText, safeFilename } from '../../core/export/download'
-import { matlabScript, matlabScriptName } from '../../core/export/matlab'
 import type { Channel, Dataset, RowRange, TimeAxis, Workspace } from '../../core/types'
 import { exportOptionImage } from '../../charts/exportChart'
 import { timeStackOption, type StackPanelInput } from '../../charts/options/timeStack'
@@ -69,7 +68,6 @@ export async function exportTimeImage({ ds, ws, axis, frame, window, format }: T
     ]
   })
   if (!panels.length) return
-  const groups = new Map(ws.groups.map((g) => [g.id, g]))
   const figure = timeStackOption({
     theme,
     panels,
@@ -86,7 +84,8 @@ export async function exportTimeImage({ ds, ws, axis, frame, window, format }: T
       .map((p) => ({
         x0: axis.values[p.start] * frame.factor,
         x1: axis.values[Math.max(p.start, p.end - 1)] * frame.factor,
-        color: seriesColor(theme, groups.get(p.groupId)?.slot ?? 0),
+        // A neutral wash, as on screen: in the plots, hue means a channel's line.
+        color: theme.textMuted,
         name: p.name,
       })),
     plotHeight: panels.length <= 3 ? 170 : panels.length <= 5 ? 140 : 112,
@@ -109,19 +108,5 @@ export function exportTimeCsv(ds: Dataset, ws: Workspace, view: RowRange | null)
     delimiter: ',',
   })
   downloadText(name, text, 'text/csv')
-  return name
-}
-
-/** MATLAB script with the time-history section over the zoom range (null = whole log). */
-export function exportTimeMatlab(ds: Dataset, ws: Workspace, view: RowRange | null): string {
-  const name = matlabScriptName(ds.name)
-  const text = matlabScript({
-    ds,
-    ws,
-    include: { points: false, xy: false, time: true, modes: false },
-    view,
-    modeRows: null,
-  })
-  downloadText(name, text, 'text/plain')
   return name
 }

@@ -2,8 +2,10 @@
 // End-to-end check of the BUILT app in a real browser (local Chrome or Edge via playwright-core; nothing downloaded).
 //
 //   npm run build && npm run e2e -- [--file path/to/Data.txt] [--out test-results] [--headed] [--base-path /XPlane-Plotter/]
+//                                   [--port 4317] [--dist dist]
 //
-// It serves dist/ with `vite preview`, opens the landing page, loads the demo flight and (optionally) a real log through
+// It serves dist/ (or --dist, a build made with `vite build --outDir`, so several checks can run side by side) with
+// `vite preview`, opens the landing page, loads the demo flight and (optionally) a real log through
 // the real file input, visits every tab in light and dark, drags a selection and saves a test point, and screenshots each
 // step into --out. It fails (exit 1) on any console error, page error or failed step.
 
@@ -24,6 +26,7 @@ const OUT = resolve(arg('out', 'test-results'))
 const FILE = arg('file', process.env.XPP_REAL_FILE ?? '')
 const PORT = Number(arg('port', '4317'))
 const BASE_PATH = arg('base-path', '/')
+const DIST = arg('dist', '')
 const BASE = `http://localhost:${PORT}${BASE_PATH}`
 const TABS = ['overview', 'time', 'xy', 'points', 'modes', 'channels']
 
@@ -34,9 +37,12 @@ const timings = {}
 const log = (...m) => console.log('[e2e]', ...m)
 
 function startServer() {
-  const server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--port', String(PORT), '--strictPort', '--base', BASE_PATH], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  const where = DIST ? ['--outDir', DIST] : []
+  const server = spawn(
+    process.execPath,
+    ['node_modules/vite/bin/vite.js', 'preview', '--port', String(PORT), '--strictPort', '--base', BASE_PATH, ...where],
+    { stdio: ['ignore', 'pipe', 'pipe'] },
+  )
   server.stderr.on('data', (d) => process.stderr.write(d))
   return server
 }

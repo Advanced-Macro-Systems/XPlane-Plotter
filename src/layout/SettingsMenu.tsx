@@ -20,7 +20,15 @@ export function SettingsMenu({ onShortcuts }: { onShortcuts: () => void }) {
 
   return (
     <>
-      <Dropdown label={<GearIcon />} ariaLabel="Settings" title="Settings" buttonClassName="btn btn-ghost btn-icon" align="right" width={312}>
+      <Dropdown
+        label={<GearIcon />}
+        ariaLabel="Settings"
+        title="Settings"
+        buttonClassName="btn btn-ghost btn-icon"
+        align="right"
+        width={312}
+        haspopup="dialog"
+      >
         {(close) => (
           <div className="sh-settings">
             <p className="menu-heading">Theme</p>

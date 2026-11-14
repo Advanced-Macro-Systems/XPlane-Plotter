@@ -13,6 +13,8 @@ import {
   isSessionFileName,
   isTypingTarget,
   loadingText,
+  matlabPartName,
+  matlabSavedText,
   modeRowsFor,
   plural,
   recentSummary,
@@ -232,5 +234,29 @@ describe('modeRowsFor', () => {
   it('is null when that window does not exist', () => {
     expect(modeRowsFor(ws, null, [0, 50])).toBeNull()
     expect(modeRowsFor({ ...ws, modes: { ...ws.modes, source: 'point:gone' } }, [1, 2], null)).toBeNull()
+  })
+})
+
+describe('MATLAB script names', () => {
+  it('names a one-plot script after its part and keeps the plain name for the whole workspace', () => {
+    expect(matlabPartName('xpp_Data_run1.m', null)).toBe('xpp_Data_run1.m')
+    expect(matlabPartName('xpp_Data_run1.m', 'time')).toBe('xpp_Data_run1_time.m')
+    expect(matlabPartName('xpp_Data_run1.m', 'xy')).toBe('xpp_Data_run1_xy.m')
+    expect(matlabPartName('xpp_Data_run1.m', 'modes')).toBe('xpp_Data_run1_modes.m')
+  })
+
+  it('stays a name MATLAB can run (at most 63 characters before .m)', () => {
+    const whole = `xpp_${'a'.repeat(55)}_b_c.m` // 63 characters before .m
+    const part = matlabPartName(whole, 'modes')
+    expect(part).toMatch(/^xpp_a+_modes\.m$/)
+    expect(part.length - 2).toBeLessThanOrEqual(63)
+    expect(matlabPartName(`xpp_${'a'.repeat(56)}__x.m`, 'xy')).not.toMatch(/__xy/)
+  })
+
+  it('confirms every export the same way, naming what the script holds', () => {
+    expect(matlabSavedText('xpp_Data_xy.m', 'xy', 'Data.txt')).toBe(
+      'Saved xpp_Data_xy.m (test-point table and X–Y plot). Put it next to Data.txt and run it in MATLAB: figures and tables go to ./out/.',
+    )
+    expect(matlabSavedText('xpp_Data.m', null, 'Data.txt')).toMatch(/^Saved xpp_Data\.m \(test-point table, X–Y plot, time histories and mode fit\)/)
   })
 })

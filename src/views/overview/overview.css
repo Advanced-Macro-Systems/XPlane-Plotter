@@ -219,8 +219,12 @@
 .ov-glance-key-label {
   font-weight: 600;
 }
-.ov-glance-group {
-  height: 22px;
+/* The key for the test-point bands: a swatch of the same faint neutral fill. */
+.ov-glance-band {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--chart-text-muted) 22%, var(--chart-surface));
 }
 /* The key for the thin vertical reset / gap lines. */
 .ov-glance-marker {
@@ -229,7 +233,9 @@
   background: var(--chart-text-muted);
 }
 
+/* As tall as its plot needs (GroundTrack sizes the plot from the track's shape), not stretched to the glance stack. */
 .ov-track {
+  align-self: start;
   overflow: hidden;
 }
 .ov-track-size {
@@ -240,8 +246,7 @@
 }
 .ov-track-plot {
   position: relative;
-  flex: 1;
-  min-height: 300px;
+  flex: none;
 }
 .ov-track-chart {
   position: absolute;
@@ -398,9 +403,6 @@
   .ov-glance-grid {
     grid-template-columns: minmax(0, 1fr);
   }
-  .ov-track-plot {
-    min-height: 360px;
-  }
 }
 
 @media (max-width: 900px) {
@@ -434,8 +436,5 @@
   }
   .ov-glance-range {
     margin-left: 0;
-  }
-  .ov-track-plot {
-    min-height: 300px;
   }
 }

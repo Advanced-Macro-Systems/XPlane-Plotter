@@ -6,8 +6,9 @@
 import { channelTitle } from '../../core/channels'
 import { channelById } from '../../core/dataset'
 import { evalPoly, polyFit, type PolyFit } from '../../core/analysis/fit'
-import { rangeStats, type RangeStats } from '../../core/analysis/stats'
+import type { RangeStats } from '../../core/analysis/stats'
 import type { Channel, Dataset, PointGroup, RowRange, TestPoint, TimeAxis, Workspace, XYConfig } from '../../core/types'
+import { windowStats } from '../points/pointsModel'
 
 /** Most Y channels on the one shared axis (the 8 categorical colour slots). */
 export const MAX_Y = 8
@@ -233,9 +234,10 @@ export function buildXYData({ ds, xy, ws, view, axis, lines }: XYDataInput): XYD
       const group = groupsById.get(point.groupId) ?? null
       const [start, end] = clampRange(ds.rowCount, point.start, point.end)
       if (end <= start) return
-      const xStats = rangeStats(x.values, start, end)
+      // Headings averaged across north are unwrapped first (windowStats), like the Test points table.
+      const xStats = windowStats(x, ds.elapsed, start, end).stats
       for (const y of ys) {
-        const yStats = rangeStats(y.ch.values, start, end)
+        const yStats = windowStats(y.ch, ds.elapsed, start, end).stats
         if (xStats.n === 0 || yStats.n === 0) continue
         const unitGroup = byGroup ? group : null
         means.push({

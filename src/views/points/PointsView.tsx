@@ -8,11 +8,10 @@ import { useMemo, useRef, useState } from 'react'
 import { useChannels, useTimeAxis } from '../../components/hooks'
 import { pointsTableCsv } from '../../core/export/csv'
 import { copyText } from '../../core/export/download'
-import { parseSession, type SessionFile } from '../../core/export/session'
 import type { Dataset, TimeAxis, Workspace } from '../../core/types'
+import { loadSessionFile } from '../../layout/fileActions'
 import { setTab, toast, useActiveDataset, useApp, useWorkspace } from '../../store/app'
 import { AddPointDialog } from './AddPointDialog'
-import { ImportSessionDialog } from './ImportSessionDialog'
 import { PointsTable } from './PointsTable'
 import { PointsToolbar } from './PointsToolbar'
 import { buildPointRows, pointCounts, sortPointRows, type PointSortKey, type SortDirection } from './pointsModel'
@@ -35,7 +34,6 @@ function PointsWorkspace({ ds, ws, axis }: { ds: Dataset; ws: Workspace; axis: T
   const selection = useApp((s) => s.selection)
   const [sort, setSort] = useState<{ key: PointSortKey; dir: SortDirection }>({ key: 'time', dir: 'asc' })
   const [adding, setAdding] = useState(false)
-  const [pending, setPending] = useState<SessionFile | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const tracked = useChannels(ds, ws.tracked)
   const points = ws.points
@@ -46,14 +44,6 @@ function PointsWorkspace({ ds, ws, axis }: { ds: Dataset; ws: Workspace; axis: T
   const counts = pointCounts(rows)
 
   const chooseSession = () => fileRef.current?.click()
-
-  const readSession = async (file: File) => {
-    try {
-      setPending(parseSession(await file.text()))
-    } catch (error) {
-      toast(error instanceof Error ? error.message : String(error), 'error')
-    }
-  }
 
   const copyTable = async () => {
     const ok = await copyText(pointsTableCsv(ds, ws, ws.tracked, '\t'))
@@ -123,13 +113,13 @@ function PointsWorkspace({ ds, ws, axis }: { ds: Dataset; ws: Workspace; axis: T
         onChange={(event) => {
           const file = event.target.files?.[0]
           event.target.value = ''
-          if (file) void readSession(file)
+          // Read here, confirmed in the import dialog the shell shows (as for a session opened anywhere else).
+          if (file) void loadSessionFile(file)
         }}
       />
       {adding && selection && (
         <AddPointDialog ds={ds} ws={ws} axis={axis} range={selection} onClose={() => setAdding(false)} />
       )}
-      {pending && <ImportSessionDialog ds={ds} ws={ws} session={pending} onClose={() => setPending(null)} />}
     </>
   )
 }

@@ -121,7 +121,7 @@ describe('buildDataset', () => {
     )
     expect(ds.warnings).toEqual([
       'The last line was incomplete and was skipped.',
-      'Skipped 3 unreadable rows (wrong number of values).',
+      'Skipped 3 unreadable rows (wrong number of values, or a line of text).',
     ])
     const csv = buildDataset(raw(['time'], [[0], [1]], { format: 'csv', skippedRows: 1 }), source)
     expect(csv.warnings).toEqual(['Skipped 1 unreadable row (wrong number of values, or no numbers).'])
@@ -141,6 +141,19 @@ describe('buildDataset', () => {
     expect(ds.rowCount).toBe(0)
     expect(ds.elapsed).toHaveLength(0)
     expect(ds.segments).toEqual([])
+  })
+
+  it('uses the column stats the parser worker sent, and computes them when there are none (or not one per column)', () => {
+    const rows = [
+      [0, 5],
+      [0.1, 7],
+    ]
+    const sent = [computeStats(Float64Array.of(0, 0.1)), { min: -1, max: 1, mean: 0, std: 1, finite: 2, constant: false }]
+    expect(buildDataset(raw(['_totl,_time', 'v'], rows, { stats: sent }), source).channels[1].stats).toBe(sent[1])
+    const computed = buildDataset(raw(['_totl,_time', 'v'], rows), source).channels[1].stats
+    expect(computed).toEqual(computeStats(Float64Array.of(5, 7)))
+    const short = buildDataset(raw(['_totl,_time', 'v'], rows, { stats: sent.slice(0, 1) }), source).channels[1].stats
+    expect(short).toEqual(computed)
   })
 
   it('has a signature that is stable for the same file and changes with its content', () => {

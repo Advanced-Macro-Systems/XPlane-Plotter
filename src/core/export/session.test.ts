@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { Workspace } from '../types'
-import { parseSession, serializeSession, SESSION_APP, SESSION_VERSION } from './session'
+import {
+  MAX_SESSION_BYTES,
+  parseSession,
+  serializeSession,
+  SESSION_APP,
+  SESSION_LIMITS,
+  SESSION_VERSION,
+  sessionFileName,
+} from './session'
 import { makeWorkspace, sampleDataset } from './testFixtures'
 
 const ds = sampleDataset()
@@ -36,6 +44,13 @@ describe('serializeSession / parseSession', () => {
     expect(new Date(file.savedAt).toISOString()).toBe(file.savedAt)
     expect(file.dataset).toEqual({ name: 'Data.txt', signature: 'abc12345', rowCount: 6 })
     expect(file.workspace).toEqual(ws)
+  })
+
+  it('names the file after the log: its stem, made safe, then .xpp-session.json', () => {
+    expect(sessionFileName('Data_run1.txt')).toBe('Data_run1.xpp-session.json')
+    expect(sessionFileName('Flight 2 / CG aft.csv')).toBe('Flight_2_CG_aft.xpp-session.json')
+    expect(sessionFileName('Demo flight (synthetic)')).toBe('Demo_flight_synthetic.xpp-session.json')
+    expect(sessionFileName('')).toBe('session.xpp-session.json')
   })
 
   it('is readable JSON without the flight data', () => {
@@ -121,5 +136,30 @@ describe('parseSession errors', () => {
     const file = sessionObject()
     workspaceOf(file).groups = 'none'
     expect(fails(JSON.stringify(file))).toThrow(/^This session file is damaged or was edited by hand: workspace\.groups/)
+  })
+
+  it('refuses sessions with more items than the app can show without freezing, saying how many', () => {
+    const point = (i: number) => ({ id: `t${i}`, name: `P${i}`, groupId: 'g1', start: 0, end: 1 })
+    const atLimit = sessionObject()
+    workspaceOf(atLimit).points = Array.from({ length: SESSION_LIMITS.points }, (_, i) => point(i))
+    expect(parseSession(JSON.stringify(atLimit)).workspace.points).toHaveLength(SESSION_LIMITS.points)
+    const tooMany = sessionObject()
+    workspaceOf(tooMany).points = Array.from({ length: 20000 }, (_, i) => point(i))
+    expect(fails(JSON.stringify(tooMany))).toThrow('This session has 20,000 test points; X-Plane Plotter reads at most 2,000.')
+    const panels = sessionObject()
+    workspaceOf(panels).panels = Array.from({ length: 101 }, (_, i) => ({ id: `p${i}`, channelIds: [] }))
+    expect(fails(JSON.stringify(panels))).toThrow(/101 plot panels; X-Plane Plotter reads at most 100/)
+    const formulas = sessionObject()
+    workspaceOf(formulas).derived = Array.from({ length: 501 }, (_, i) => ({ id: `fx:f${i}`, name: 'f', unit: '', expression: '1' }))
+    expect(fails(JSON.stringify(formulas))).toThrow(/501 formulas/)
+    const groups = sessionObject()
+    workspaceOf(groups).groups = Array.from({ length: 201 }, (_, i) => ({ id: `g${i}`, name: 'g', slot: 0 }))
+    expect(fails(JSON.stringify(groups))).toThrow(/201 test-point groups/)
+  })
+
+  it('turns away a file too large to be a session, also by its size alone', () => {
+    expect(fails(`{"app":"xplane-plotter","pad":"${'x'.repeat(5_000_001)}"}`)).toThrow(/far too large/)
+    // Whatever the encoding (at most 3 UTF-8 bytes per character), a file over MAX_SESSION_BYTES is too long.
+    expect(MAX_SESSION_BYTES).toBe(15_000_000)
   })
 })

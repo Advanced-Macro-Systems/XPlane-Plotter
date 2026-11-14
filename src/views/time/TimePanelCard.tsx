@@ -35,6 +35,7 @@ import {
 } from '../../charts/options/timePanel'
 import { seriesColor, type ChartTheme } from '../../charts/theme'
 import { ChannelPicker } from '../../components/ChannelPicker'
+import { scrollBehavior } from '../../components/hooks'
 import { channelTitle } from '../../core/channels'
 import { channelById } from '../../core/dataset'
 import type { Channel, Dataset, PanelConfig, RowRange, TimeAxis } from '../../core/types'
@@ -43,8 +44,9 @@ import { Dropdown } from '../../ui/Dropdown'
 import { removePanelWithUndo } from './timeActions'
 import type { TimeController } from './timeController'
 import {
-  cachedSeriesData,
+  cachedSeriesLevels,
   laneLabels,
+  levelFor,
   spanInWindow,
   tooltipHtml,
   wheelScale,
@@ -56,6 +58,8 @@ import {
 const REPLACE_SERIES = ['series']
 /** A press that moves less than this (px) is a click, not a drag. */
 const DRAG_THRESHOLD_PX = 3
+/** Plot width assumed until the panel has been measured (px) */
+const DEFAULT_PLOT_WIDTH = 1200
 
 export type PointerMode = 'zoom' | 'select'
 
@@ -143,14 +147,41 @@ export const TimePanelCard = memo(function TimePanelCard({
       }),
     [ds, panel.channelIds],
   )
+  // Each line is drawn from the coarsest min/max level of detail that still resolves the visible window, so a zoom
+  // step costs what the screen shows, not the length of the log. The level is re-chosen as the zoom changes; the
+  // option (and ECharts' work) changes only when the level does.
+  const levels = useMemo(
+    () => entries.map(({ ch }) => cachedSeriesLevels(axis.values, frame.factor, breaks, ch.values)),
+    [entries, axis, frame.factor, breaks],
+  )
+  const plotRef = useRef<HTMLDivElement>(null)
+  const [plotWidth, setPlotWidth] = useState(DEFAULT_PLOT_WIDTH)
+  useEffect(() => {
+    const element = plotRef.current
+    if (!element || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver((items) => {
+      const width = items[items.length - 1]?.contentRect.width ?? 0
+      if (width > 0) setPlotWidth(width)
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+  const levelLengths = useMemo(() => levels[0]?.map((level) => level.length) ?? [], [levels])
+  const devicePx = Math.max(100, plotWidth - geometry.left - geometry.right) * (window.devicePixelRatio || 1)
+  const fullSpan = frame.max - frame.min
+  const currentLevel = useCallback(() => {
+    const [lo, hi] = controller.getWindow()
+    return levelFor(levelLengths, fullSpan > 0 ? (hi - lo) / fullSpan : 1, devicePx)
+  }, [controller, levelLengths, fullSpan, devicePx])
+  const level = useSyncExternalStore(controller.subscribe, currentLevel)
   const series = useMemo(
     () =>
-      entries.map(({ ch, slot }) => ({
+      entries.map(({ ch, slot }, i) => ({
         name: channelTitle(ch),
         color: seriesColor(theme, slot),
-        data: cachedSeriesData(axis.values, frame.factor, breaks, ch.values),
+        data: levels[i][Math.min(level, levels[i].length - 1)],
       })),
-    [entries, theme, axis, frame.factor, breaks],
+    [entries, theme, levels, level],
   )
   const tipSeries = useMemo(
     () => entries.map(({ ch, slot }) => ({ name: channelTitle(ch), color: seriesColor(theme, slot), values: ch.values })),
@@ -197,7 +228,7 @@ export const TimePanelCard = memo(function TimePanelCard({
   )
 
   useEffect(() => {
-    if (revealKey > 0) cardRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    if (revealKey > 0) cardRef.current?.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() })
   }, [revealKey])
 
   const removeChannel = (id: string) => {
@@ -227,7 +258,7 @@ export const TimePanelCard = memo(function TimePanelCard({
         {active && <span className="tv-active-tag">Adding here</span>}
         <PanelMenu panel={panel} index={index} count={count} />
       </header>
-      <div className="tv-plot" style={{ height: chartHeight }}>
+      <div ref={plotRef} className="tv-plot" style={{ height: chartHeight }}>
         <EChart
           className="tv-chart"
           option={option}

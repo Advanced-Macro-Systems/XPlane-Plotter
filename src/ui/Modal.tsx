@@ -12,7 +12,10 @@ interface ModalProps {
   className?: string
 }
 
-/** Accessible modal built on <dialog>: focus is trapped, Escape and the backdrop close it. */
+/**
+ * Accessible modal built on <dialog>: focus is trapped, Escape and the backdrop close it, and focus goes back to the
+ * element that opened it when it closes.
+ */
 export function Modal({ title, onClose, children, footer, width = 480, className }: ModalProps) {
   const ref = useRef<HTMLDialogElement>(null)
   const onCloseRef = useRef(onClose)
@@ -25,6 +28,9 @@ export function Modal({ title, onClose, children, footer, width = 480, className
   useEffect(() => {
     const dialog = ref.current
     if (!dialog) return
+    // The browser's own focus restore never runs here: React removes the <dialog> before the cleanup below closes it,
+    // which would leave focus on <body> (the next Tab would jump to the end of the page). So remember the opener.
+    const opener = focusedElement()
     if (!dialog.open) dialog.showModal()
     // React's autoFocus runs before the dialog opens; the field to type in is marked data-autofocus and focused here.
     dialog.querySelector<HTMLElement>('[data-autofocus]')?.focus()
@@ -36,6 +42,11 @@ export function Modal({ title, onClose, children, footer, width = 480, className
     return () => {
       dialog.removeEventListener('cancel', onCancel)
       if (dialog.open) dialog.close()
+      // Back to the opener, unless an action already moved focus somewhere that is still on the page.
+      const now = focusedElement()
+      if ((!now || dialog.contains(now)) && opener && opener.isConnected && !dialog.contains(opener)) {
+        opener.focus({ preventScroll: true })
+      }
     }
   }, [])
 
@@ -62,4 +73,10 @@ export function Modal({ title, onClose, children, footer, width = 480, className
       </div>
     </dialog>
   )
+}
+
+/** The focused element, or null when focus is nowhere in particular (<body>, or an element no longer on the page). */
+function focusedElement(): HTMLElement | null {
+  const active = document.activeElement
+  return active instanceof HTMLElement && active !== document.body && active.isConnected ? active : null
 }

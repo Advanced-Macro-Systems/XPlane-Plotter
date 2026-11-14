@@ -29,7 +29,9 @@
 }
 .tv-new-panel[aria-pressed='true'] {
   background: var(--info-soft);
+  box-shadow: inset 0 0 0 1px var(--info-text);
   color: var(--info-text);
+  font-weight: 600;
 }
 .tv-side-hint {
   margin-bottom: 4px;
@@ -122,7 +124,7 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  container-type: inline-size;
+  container: tv-main / inline-size;
 }
 .tv-toolbar {
   gap: 8px 10px;
@@ -180,6 +182,9 @@
   margin: 0 1px;
 }
 .tv-hint-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--text-muted);
   font-size: 12px;
 }
@@ -187,6 +192,8 @@
 /* ---------------------------------------------------------------- selection bar */
 
 .tv-selbar {
+  /* Its own container: the button labels hide only when the bar itself is narrow (see the end of this file). */
+  container: tv-selbar / inline-size;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -476,12 +483,25 @@
   color: var(--text-muted);
   font-size: 13px;
 }
+.tv-window-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.tv-window-error {
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  font-size: 13px;
+}
 
 /* ---------------------------------------------------------------- narrow */
 
-/* Secondary button labels become screen-reader text when the column is narrow (the buttons keep their titles). */
-@container (max-width: 860px) {
-  .tv-collapse {
+/* Secondary button labels become screen-reader text when there is no room for them (the buttons keep their titles):
+   in the toolbar when the column is narrow, in the selection bar only when the bar itself is (its buttons wrap first). */
+@container tv-main (max-width: 860px) {
+  .tv-toolbar .tv-collapse {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -490,7 +510,17 @@
     white-space: nowrap;
   }
 }
-@container (max-width: 560px) {
+@container tv-selbar (max-width: 520px) {
+  .tv-selbar .tv-collapse {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+@container tv-main (max-width: 560px) {
   .tv-base .view-toolbar-label {
     display: none;
   }

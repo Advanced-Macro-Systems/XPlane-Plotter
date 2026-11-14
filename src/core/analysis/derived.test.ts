@@ -165,6 +165,23 @@ describe('withDerived', () => {
     expect(Number.isNaN(ch.values[1])).toBe(true)
     expect(ch.stats.finite).toBe(2)
   })
+
+  it("differentiates within the dataset's segments (no spike at a sim reset or recording gap)", () => {
+    // Pressure altitude climbs 10 ft per 0.1 s in both runs, but jumps from 0 to 10 000 ft where the second starts:
+    // elapsed time advances by only one step there, so a difference across it would read 50 000 ft/s.
+    const alt = Array.from({ length: 8 }, (_, i) => (i < 4 ? 10 * i : 10_000 + 10 * i))
+    const elapsed = alt.map((_, i) => i * 0.1)
+    const twoRuns: Dataset = {
+      ...makeDataset([['p-alt,ftMSL', alt]], elapsed),
+      segments: [
+        { start: 0, end: 4, reason: 'start' },
+        { start: 4, end: 8, reason: 'reset' },
+      ],
+    }
+    const { dataset, errors } = withDerived(twoRuns, [{ id: 'fx:rate', name: 'Rate', unit: 'ft/s', expression: 'diff(p_alt_ftMSL)' }])
+    expect(errors).toEqual([])
+    for (const v of dataset.channels[1].values) expect(v).toBeCloseTo(100, 9)
+  })
 })
 
 // --------------------------------------------------------------------------------------------- presets
@@ -422,6 +439,26 @@ describe('availablePresets', () => {
     expect(availablePresets(makeDataset([['Airspeed (kt)', [1]]]))).toEqual([])
   })
 
+  it('takes dh/dt and energy height from the geometric altitude when it is logged', () => {
+    // A steady 600 ft/min climb at constant TAS on a hot day: pressure altitude rises 5 % slower (T_std/T).
+    const both = makeDataset(
+      [
+        ['Vtrue,_ktas', [100, 100, 100]],
+        ['___CG,ftMSL', [1000, 1010, 1020]],
+        ['p-alt,ftMSL', [900, 909.5, 919]],
+      ],
+      [0, 1, 2],
+    )
+    const presets = availablePresets(both)
+    const ps = presets.find((p) => p.id === 'specific_excess_power') as DerivedPreset
+    expect(ps.requires).toEqual(['CG_ftMSL', 'Vtrue_ktas'])
+    expect(ps.description).toMatch(/geometric altitude/)
+    for (const v of evaluatePreset(both, ps)) expect(v).toBeCloseTo(10 * FT, 12)
+    const energy = presets.find((p) => p.id === 'energy_height') as DerivedPreset
+    expect(energy.requires).toEqual(['CG_ftMSL', 'Vtrue_ktas'])
+    expect(evaluatePreset(both, energy)[0]).toBeCloseTo(1000 + (100 * KT) ** 2 / (2 * G) / FT, 6)
+  })
+
   it('takes dh/dt from pressure altitude (lag-free), or from VVI when altitude is not logged', () => {
     // A steady 600 ft/min climb at constant TAS: Ps = 3.048 m/s either way.
     const withAltitude = makeDataset(
@@ -434,6 +471,7 @@ describe('availablePresets', () => {
     )
     const fromAltitude = availablePresets(withAltitude).find((p) => p.id === 'specific_excess_power') as DerivedPreset
     expect(fromAltitude.requires).toEqual(['p_alt_ftMSL', 'Vtrue_ktas'])
+    expect(fromAltitude.description).toMatch(/ISA/)
     for (const v of evaluatePreset(withAltitude, fromAltitude)) expect(v).toBeCloseTo(10 * FT, 12)
 
     const vviOnly = makeDataset(

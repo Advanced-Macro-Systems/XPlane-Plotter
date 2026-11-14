@@ -33,6 +33,7 @@ export function DatasetSwitcher() {
         buttonClassName="sh-ds-button"
         align="left"
         width={400}
+        haspopup="dialog"
       >
         {(close) => (
           <div className="sh-ds-menu">

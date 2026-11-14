@@ -204,19 +204,17 @@ export function segmentMarkers(ds: Dataset): { x: number; reason: 'reset' | 'gap
 export interface PointBand {
   from: number
   to: number
-  slot: number
 }
 
-/** The visible test points as elapsed-time bands, coloured by their group's slot. */
+/** The visible test points as elapsed-time bands (drawn neutral, whatever their group). */
 export function pointBands(ds: Dataset, ws: Pick<Workspace, 'points' | 'groups'> | null): PointBand[] {
   if (!ws) return []
-  const slots = new Map(ws.groups.map((g) => [g.id, g.slot]))
   const bands: PointBand[] = []
   for (const p of ws.points) {
     if (p.hidden) continue
     const start = Math.max(0, Math.min(ds.rowCount - 1, p.start))
     const last = Math.max(start, Math.min(ds.rowCount - 1, p.end - 1))
-    bands.push({ from: ds.elapsed[start], to: ds.elapsed[last], slot: slots.get(p.groupId) ?? 0 })
+    bands.push({ from: ds.elapsed[start], to: ds.elapsed[last] })
   }
   return bands
 }
@@ -226,15 +224,39 @@ export function pointBands(ds: Dataset, ws: Pick<Workspace, 'points' | 'groups'>
 export const LAT_ID = '__lat,__deg'
 export const LON_ID = '__lon,__deg'
 
+export interface TrackPoint {
+  lon: number
+  lat: number
+  /** Dataset.elapsed at that row (s) */
+  t: number
+}
+
 export interface GroundTrack {
   latId: string
   lonId: string
-  /** [lon, lat] pairs in row order; [null, null] breaks the line (missing fixes, sim resets) */
+  /**
+   * [lon, lat] pairs in row order; [null, null] breaks the line (missing fixes, sim resets, recording gaps). A run that
+   * does not move (the aircraft parked before a sim reload) is one point, which the chart shows as a ring.
+   */
   path: [number | null, number | null][]
-  start: { lon: number; lat: number; t: number }
-  end: { lon: number; lat: number; t: number }
+  /** The first point of the first run that moves (not a lone position logged before a reset) */
+  start: TrackPoint
+  /** The last point of the last run that moves */
+  end: TrackPoint
+  /** Where the track picks up again after a sim reset or recording gap: the first point of each later moving run */
+  restarts: (TrackPoint & { reason: 'reset' | 'gap' })[]
   lonExtent: [number, number]
   latExtent: [number, number]
+}
+
+/** A run of the track narrower than this share of the whole track's span draws no visible line: it is one position. */
+const STILL_SHARE = 0.002
+
+interface TrackRun {
+  points: [number, number][]
+  rows: number[]
+  /** Why the line broke before this run */
+  after: 'start' | 'reset' | 'gap' | 'missing'
 }
 
 /** A real fix: finite, and not the (0, 0) X-Plane reports before the aircraft is placed. */
@@ -242,7 +264,11 @@ function isFix(lat: number, lon: number): boolean {
   return Number.isFinite(lat) && Number.isFinite(lon) && !(lat === 0 && lon === 0) && Math.abs(lat) <= 90
 }
 
-/** Longitude/latitude path (every k-th row, at most about `maxPoints`), or null without a usable lat/lon pair. */
+/**
+ * Longitude/latitude path (every k-th row, at most about `maxPoints`), or null without a usable lat/lon pair. The line
+ * breaks at missing fixes and at every sim reset or recording gap (Dataset.segments); Start and End sit on the runs
+ * that move, and each later moving run after a reset or gap is a restart.
+ */
 export function groundTrack(ds: Dataset, maxPoints = 3000): GroundTrack | null {
   const latCh = channelById(ds, LAT_ID)
   const lonCh = channelById(ds, LON_ID)
@@ -251,25 +277,28 @@ export function groundTrack(ds: Dataset, maxPoints = 3000): GroundTrack | null {
   const lon = lonCh.values
   const n = Math.min(ds.rowCount, lat.length, lon.length)
   const stride = Math.max(1, Math.ceil(n / Math.max(2, maxPoints)))
-  const breaks = new Set(ds.segments.slice(1).map((s) => s.start))
-  const path: [number | null, number | null][] = []
-  let first = -1
-  let last = -1
+  const boundaries = new Map(ds.segments.slice(1).map((s) => [s.start, s.reason]))
+  const runs: TrackRun[] = []
+  let run: TrackRun | null = null
+  let after: TrackRun['after'] = 'start'
   let lonMin = Infinity
   let lonMax = -Infinity
   let latMin = Infinity
   let latMax = -Infinity
-  let broken = false
   const take = (i: number) => {
     if (!isFix(lat[i], lon[i])) {
-      broken = path.length > 0
+      if (run) {
+        run = null
+        after = 'missing'
+      }
       return
     }
-    if (broken) path.push([null, null])
-    broken = false
-    path.push([lon[i], lat[i]])
-    if (first < 0) first = i
-    last = i
+    if (!run) {
+      run = { points: [], rows: [], after }
+      runs.push(run)
+    }
+    run.points.push([lon[i], lat[i]])
+    run.rows.push(i)
     lonMin = Math.min(lonMin, lon[i])
     lonMax = Math.max(lonMax, lon[i])
     latMin = Math.min(latMin, lat[i])
@@ -277,16 +306,52 @@ export function groundTrack(ds: Dataset, maxPoints = 3000): GroundTrack | null {
   }
   for (let i = 0; i < n; i += 1) {
     // A segment boundary always breaks the line, even between kept rows.
-    if (breaks.has(i) && path.length) broken = true
-    if (i % stride === 0 || i === n - 1 || breaks.has(i)) take(i)
+    const boundary = boundaries.get(i)
+    if (boundary !== undefined) {
+      run = null
+      after = boundary === 'start' ? 'gap' : boundary
+    }
+    if (i % stride === 0 || i === n - 1 || boundary !== undefined) take(i)
   }
-  if (first < 0 || (lonMin === lonMax && latMin === latMax)) return null
+  if (!runs.length || (lonMin === lonMax && latMin === latMax)) return null
+
+  // Spans in latitude degrees on both axes (east–west degrees shrink with cos(latitude)).
+  const k = Math.max(0.05, Math.cos((((latMin + latMax) / 2) * Math.PI) / 180))
+  const span = Math.max((lonMax - lonMin) * k, latMax - latMin)
+  const moves = (r: TrackRun) => {
+    let lo = [Infinity, Infinity]
+    let hi = [-Infinity, -Infinity]
+    for (const [x, y] of r.points) {
+      lo = [Math.min(lo[0], x), Math.min(lo[1], y)]
+      hi = [Math.max(hi[0], x), Math.max(hi[1], y)]
+    }
+    return Math.max((hi[0] - lo[0]) * k, hi[1] - lo[1]) > STILL_SHARE * span
+  }
+  const path: [number | null, number | null][] = []
+  const moving: TrackRun[] = []
+  for (const r of runs) {
+    if (path.length) path.push([null, null])
+    if (moves(r)) {
+      moving.push(r)
+      path.push(...r.points)
+    } else {
+      path.push(r.points[0])
+    }
+  }
+  const point = (r: TrackRun, j: number): TrackPoint => ({ lon: r.points[j][0], lat: r.points[j][1], t: ds.elapsed[r.rows[j]] })
+  const firstRun = moving[0] ?? runs[0]
+  const lastRun = moving[moving.length - 1] ?? runs[runs.length - 1]
+  const restarts: GroundTrack['restarts'] = []
+  for (const r of moving.slice(1)) {
+    if (r.after === 'reset' || r.after === 'gap') restarts.push({ ...point(r, 0), reason: r.after })
+  }
   return {
     latId: latCh.id,
     lonId: lonCh.id,
     path,
-    start: { lon: lon[first], lat: lat[first], t: ds.elapsed[first] },
-    end: { lon: lon[last], lat: lat[last], t: ds.elapsed[last] },
+    start: point(firstRun, 0),
+    end: point(lastRun, lastRun.points.length - 1),
+    restarts,
     lonExtent: [lonMin, lonMax],
     latExtent: [latMin, latMax],
   }
@@ -302,6 +367,31 @@ export function trackSizeKm(track: Pick<GroundTrack, 'lonExtent' | 'latExtent'>)
     eastWest: (track.lonExtent[1] - track.lonExtent[0]) * KM_PER_DEG * Math.cos((latMid * Math.PI) / 180),
     northSouth: (track.latExtent[1] - track.latExtent[0]) * KM_PER_DEG,
   }
+}
+
+/** Shortest and tallest ground-track plot box (px): a flat east–west track still gets room, a north–south one does not tower. */
+const MIN_PLOT_HEIGHT = 200
+const MAX_PLOT_HEIGHT = 420
+/** Before the width is known */
+const FIRST_PLOT_HEIGHT = 300
+
+/**
+ * The ground-track plot box's height for the track's shape (north–south over east–west extent) at `width` px, within
+ * 200–420 px, and the resulting plot-area aspect (width / height) for equalAspectRanges. `insets` are the chart's grid
+ * margins. Sized this way the equal-aspect ranges stay close to the track instead of padding it into a tall box.
+ */
+export function trackPlotBox(
+  size: { eastWest: number; northSouth: number },
+  width: number,
+  insets: { left: number; right: number; top: number; bottom: number },
+): { height: number; aspect: number } {
+  const plotWidth = width - insets.left - insets.right
+  const insetsY = insets.top + insets.bottom
+  if (!(plotWidth > 10)) return { height: FIRST_PLOT_HEIGHT, aspect: 1 }
+  const shape = size.eastWest > 0 ? size.northSouth / size.eastWest : Infinity
+  const wanted = Number.isFinite(shape) ? plotWidth * shape + insetsY : MAX_PLOT_HEIGHT
+  const height = Math.round(Math.min(MAX_PLOT_HEIGHT, Math.max(MIN_PLOT_HEIGHT, wanted)))
+  return { height, aspect: plotWidth / (height - insetsY) }
 }
 
 /** Smallest span shown, degrees of latitude (~110 m): a track that barely moves still gets a readable box. */

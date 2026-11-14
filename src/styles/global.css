@@ -447,10 +447,12 @@ code,
   width: 24px;
 }
 /* A toggle that is on (Zoom box, New panel ...): the info tint (blue in light, cyan in dark); the solid accent is kept for
-   primary actions and the open tab. */
+   primary actions and the open tab. A ring and heavier text say "on" without relying on the colour. */
 .btn[aria-pressed='true'] {
   background: var(--info-soft);
+  box-shadow: inset 0 0 0 1px var(--info-text);
   color: var(--info-text);
+  font-weight: 600;
 }
 
 /* A row of mutually exclusive options (Zoom / Select, Points / Lines ...). */

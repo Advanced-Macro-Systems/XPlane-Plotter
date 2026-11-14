@@ -3,12 +3,14 @@
 // No React here (unit-tested in node).
 
 import { MISSING, formatNumber } from '../../charts/format'
-import { fitFirstOrder, fitOscillation, type FirstOrderFit, type OscillationFit } from '../../core/analysis/modes'
+import type { ModesPlotInput } from '../../charts/options/modes'
+import type { OscillationFit } from '../../core/analysis/modes'
 import { channelById } from '../../core/dataset'
 import type { Channel, Dataset, ModesConfig, RowRange, TestPoint } from '../../core/types'
+import type { ModeDetrend, ModeFit, ModeModel } from './modeFit'
 
-export type ModeModel = ModesConfig['model']
-export type ModeDetrend = ModesConfig['detrend']
+// The fit itself (it runs in a worker, see useModeFit.ts).
+export { oscillationR2, runModeFit, type ModeDetrend, type ModeFit, type ModeModel } from './modeFit'
 export type ModeSource = ModesConfig['source']
 export type SourceKind = 'selection' | 'view' | 'point'
 
@@ -112,14 +114,6 @@ export function crossesSegment(ds: Dataset, rows: RowRange): boolean {
 
 // ------------------------------------------------------------------------------------------------ fitting
 
-export type ModeFit = { model: 'oscillation'; fit: OscillationFit } | { model: 'first-order'; fit: FirstOrderFit }
-
-export function runModeFit(series: Pick<WindowSeries, 't' | 'y'>, model: ModeModel, detrend: ModeDetrend): ModeFit {
-  return model === 'oscillation'
-    ? { model, fit: fitOscillation(series.t, series.y, { detrend }) }
-    : { model, fit: fitFirstOrder(series.t, series.y) }
-}
-
 /** Equilibrium ± decaying amplitude of an oscillation fit at each t (null when the fit has no parameters). */
 export function oscillationEnvelope(
   t: Float64Array,
@@ -144,6 +138,60 @@ export function residuals(y: Float64Array, fitted: Float64Array): Float64Array {
   const out = new Float64Array(y.length)
   for (let k = 0; k < y.length; k += 1) out[k] = y[k] - fitted[k]
   return out
+}
+
+// ------------------------------------------------------------------------------------------------ drawing long windows
+
+/** Most samples per line the chart draws: a longer window (a whole file) is thinned for drawing only. */
+export const PLOT_MAX_POINTS = 4096
+
+/**
+ * Which samples of a long window to draw: all of them up to `max` (null); else the first and the last, and in each of
+ * about max/3 equal runs its lowest and highest value (in time order) and its first missing sample, so the peaks, the
+ * band of noise and the gaps look as they do with every sample.
+ */
+export function plotIndices(y: ArrayLike<number>, max = PLOT_MAX_POINTS): Uint32Array | null {
+  const n = y.length
+  if (n <= max) return null
+  const runs = Math.max(1, Math.floor((max - 2) / 3))
+  const keep: number[] = [0]
+  for (let r = 0; r < runs; r += 1) {
+    const from = Math.floor((r * n) / runs)
+    const to = Math.floor(((r + 1) * n) / runs)
+    let lo = -1
+    let hi = -1
+    let gap = -1
+    for (let i = from; i < to; i += 1) {
+      const v = y[i]
+      if (!Number.isFinite(v)) {
+        if (gap < 0) gap = i
+        continue
+      }
+      if (lo < 0 || v < y[lo]) lo = i
+      if (hi < 0 || v > y[hi]) hi = i
+    }
+    const picked = [lo, hi, gap].filter((i) => i > 0 && i < n - 1).sort((a, b) => a - b)
+    for (const i of picked) if (i !== keep[keep.length - 1]) keep.push(i)
+  }
+  keep.push(n - 1)
+  return Uint32Array.from(keep)
+}
+
+/**
+ * The chart's input with a long window thinned (plotIndices), so drawing stays quick; the fit, the peaks, the CSV and
+ * the MATLAB export keep every sample.
+ */
+export function thinPlotInput(input: ModesPlotInput, max = PLOT_MAX_POINTS): ModesPlotInput {
+  const keep = plotIndices(input.y, max)
+  if (!keep) return input
+  const pick = (values: Float64Array) => Float64Array.from(keep, (i) => values[i])
+  return {
+    ...input,
+    t: pick(input.t),
+    y: pick(input.y),
+    fitted: input.fitted ? pick(input.fitted) : null,
+    envelope: input.envelope ? { upper: pick(input.envelope.upper), lower: pick(input.envelope.lower) } : null,
+  }
 }
 
 /** The fitted curve when it has any finite value. */
@@ -196,7 +244,9 @@ export function figureSubtitle(result: ModeFit): string {
   if (!result.fit.ok) return 'No accepted fit'
   if (result.model === 'oscillation') {
     const f = result.fit
-    return `Td = ${fmt(f.periodS)} s · ζ = ${fmt(f.zeta)} · ωn = ${fmt(f.omegaN)} rad/s · R² = ${fmt(f.r2, 4)}`
+    const r2 =
+      result.detrend === 'linear' ? `R² (trend removed) = ${fmt(result.r2Oscillation, 4)}` : `R² = ${fmt(f.r2, 4)}`
+    return `Td = ${fmt(f.periodS)} s · ζ = ${fmt(f.zeta)} · ωn = ${fmt(f.omegaN)} rad/s · ${r2}`
   }
   const f = result.fit
   const half = f.tau < 0 ? `t2 = ${fmt(-f.halfLifeS)} s` : `t½ = ${fmt(f.halfLifeS)} s`
@@ -273,9 +323,18 @@ export function resultTiles(result: ModeFit, unit: string): ResultTile[] {
         label: 'Cycles in window',
         value: value(f.cycles, 2),
         unit: '',
-        foot: shown && f.cycles < 2 ? 'Two or more are firmer' : 'Of the fitted period',
+        foot: shown && f.cycles < 2 ? (diedOut(f) ? 'It has died out by the end' : 'Two or more are firmer') : 'Of the fitted period',
       },
-      { key: 'r2', label: 'R²', value: value(f.r2, 4), unit: '', foot: 'Variance explained' },
+      // The R² the fit is judged by ("explains N%"): with a linear trend, the share of what the trend leaves.
+      result.detrend === 'linear'
+        ? {
+            key: 'r2',
+            label: 'R² (trend removed)',
+            value: value(result.r2Oscillation, 4),
+            unit: '',
+            foot: shown ? `With the trend ${fmt(f.r2, 4)}` : 'Of what the trend leaves',
+          }
+        : { key: 'r2', label: 'R²', value: value(f.r2, 4), unit: '', foot: 'Variance explained' },
       {
         key: 'zetaLogDec',
         label: 'ζ from log decrement',
@@ -356,6 +415,27 @@ function typicalOscillation(family: ChannelFamily, periodS: number, zeta: number
   return null
 }
 
+/** The fitted oscillation decays below a tenth of its first amplitude within the window: it holds the whole response. */
+function diedOut(fit: Pick<OscillationFit, 'sigma' | 'cycles' | 'periodS'>): boolean {
+  return fit.sigma * fit.cycles * fit.periodS >= Math.LN10
+}
+
+/**
+ * Why an accepted oscillation fit is still too doubtful to name a mode: fewer than two cycles while the oscillation is
+ * still going at the end of the window (a well-damped short period dies out within about one cycle: that is the whole
+ * response, not too little of it), ζ from the log decrement far from the fitted ζ, or notes on the fit (fair fit,
+ * solver stopped early...). Empty when it is sound.
+ */
+export function oscillationDoubts(fit: OscillationFit): string[] {
+  const doubts: string[] = []
+  if (fit.cycles < 2 && !diedOut(fit)) doubts.push(`only ${fmt(fit.cycles, 2)} cycles`)
+  if (Number.isFinite(fit.zetaLogDec) && Math.abs(fit.zetaLogDec - fit.zeta) > 0.5 * Math.abs(fit.zeta)) {
+    doubts.push(`the log decrement gives ζ = ${fmt(fit.zetaLogDec, 2)}`)
+  }
+  if (fit.message && doubts.length === 0) doubts.push('see the note')
+  return doubts
+}
+
 /** One plain-language sentence about a successful fit (null when the fit was rejected). */
 export function interpretFit(result: ModeFit, ch: Pick<Channel, 'token'> | undefined): Interpretation | null {
   if (!result.fit.ok) return null
@@ -364,16 +444,22 @@ export function interpretFit(result: ModeFit, ch: Pick<Channel, 'token'> | undef
     const f = result.fit
     if (!(Number.isFinite(f.zeta) && Number.isFinite(f.periodS))) return null
     const zeta = `ζ = ${fmt(f.zeta, 2)}`
+    // A doubtful fit (few cycles, a fair fit, or one its own cross-check disagrees with) never names a mode or shows
+    // green: it says what to check instead.
+    const doubts = oscillationDoubts(f)
+    const check = doubts.length ? ` (${doubts.join('; ')}) — check the window` : ''
     if (f.sigma < 0) {
-      return {
-        tone: 'danger',
-        text: `${zeta} — unstable: the oscillation grows, doubling its amplitude every ${fmt(-f.halfLifeS, 2)} s.`,
-      }
+      return doubts.length
+        ? { tone: 'neutral', text: `${zeta} — the fitted oscillation grows${check}.` }
+        : {
+            tone: 'danger',
+            text: `${zeta} — unstable: the oscillation grows, doubling its amplitude every ${fmt(-f.halfLifeS, 2)} s.`,
+          }
     }
-    const typical = typicalOscillation(family, f.periodS, f.zeta)
+    const typical = doubts.length ? null : typicalOscillation(family, f.periodS, f.zeta)
     return {
       tone: typical ? 'good' : 'neutral',
-      text: `${zeta} — ${dampingWords(f.zeta)}${typical ? `, typical of ${typical}` : ''}.`,
+      text: `${zeta} — ${dampingWords(f.zeta)}${typical ? `, typical of ${typical}` : ''}${check}.`,
     }
   }
   const f = result.fit
@@ -466,6 +552,42 @@ export function presetPoint(points: readonly TestPoint[], preset: ModePreset, so
   return match ? `point:${match.id}` : null
 }
 
+/** The quick pick a test point is named after ("Short period", "dutch roll 2"), or null: the inverse of presetPoint. */
+export function presetForPoint(name: string): ModePreset | null {
+  const text = words(name)
+  return MODE_PRESETS.find((preset) => text.includes(words(preset.label))) ?? null
+}
+
+/**
+ * What choosing a test point as the window changes: the source, and, when the point is named after a mode and this log
+ * has that quick pick's channel, its channel and model too (one update), so "Short period" is fitted on α with the
+ * oscillation model rather than on whatever channel the last fit used.
+ */
+export function modesForPoint(ds: Dataset, point: Pick<TestPoint, 'id' | 'name'>): Partial<ModesConfig> {
+  const source: ModeSource = `point:${point.id}`
+  const preset = presetForPoint(point.name)
+  const channelId = preset ? presetChannel(ds, preset) : null
+  return preset && channelId ? { source, channelId, model: preset.model } : { source }
+}
+
+/**
+ * Whether a quick pick shows as on: the channel and model are its own, and the window is not a test point named after
+ * another mode (the Phugoid pick stays off while "Short period" is analysed on its airspeed).
+ */
+export function presetActive(
+  ds: Dataset,
+  preset: ModePreset,
+  modes: Pick<ModesConfig, 'channelId' | 'model' | 'source'>,
+  points: readonly TestPoint[],
+): boolean {
+  const id = presetChannel(ds, preset)
+  if (!id || id !== modes.channelId || preset.model !== modes.model) return false
+  const pointId = sourcePointId(modes.source)
+  const point = pointId ? points.find((p) => p.id === pointId) : undefined
+  const named = point ? presetForPoint(point.name) : null
+  return !named || named.id === preset.id
+}
+
 // ------------------------------------------------------------------------------------------------ copy and CSV
 
 /** A number as plain text for spreadsheets: ASCII minus, up to 7 significant figures, '' when missing. */
@@ -473,9 +595,13 @@ export function plainNumber(value: number, significant = 7): string {
   return Number.isFinite(value) ? String(Number(value.toPrecision(significant))) : ''
 }
 
-/** Text cell for TSV: tabs and line breaks become spaces. */
+/**
+ * Text cell for TSV: tabs and line breaks become spaces, and text a spreadsheet would run as a formula (=, +, −, @
+ * first) gets a leading apostrophe, as in every other CSV / TSV the app writes.
+ */
 function tsvText(text: string): string {
-  return text.replace(/[\t\r\n]+/g, ' ').trim()
+  const flat = text.replace(/[\t\r\n]+/g, ' ').trim()
+  return /^[=+\-@]/.test(flat) ? `'${flat}` : flat
 }
 
 export interface ResultsContext {
@@ -514,7 +640,12 @@ export function resultsTsv(result: ModeFit, ctx: ResultsContext): string {
       ['decay rate sigma', plainNumber(o.sigma), '1/s'],
       [o.sigma < 0 ? 'time to double' : 'time to half amplitude', plainNumber(Math.abs(o.halfLifeS)), 's'],
       ['cycles in window', plainNumber(o.cycles), ''],
-      ['R2', plainNumber(o.r2), ''],
+      ...(result.detrend === 'linear'
+        ? [
+            ['R2 (trend removed)', plainNumber(result.r2Oscillation), ''],
+            ['R2 (with trend)', plainNumber(o.r2), ''],
+          ]
+        : [['R2', plainNumber(o.r2), '']]),
       ['zeta from log decrement', plainNumber(o.zetaLogDec), ''],
       ['amplitude A', plainNumber(o.amplitude), ''],
       ['offset c', plainNumber(o.offset), ''],

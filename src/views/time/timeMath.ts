@@ -3,10 +3,11 @@
 // the steadiness stats. No DOM, no React: unit-tested in timeMath.test.ts.
 
 import { channelTitle } from '../../core/channels'
-import { driftPerMinute, rangeStats } from '../../core/analysis/stats'
 import { formatClock, formatDuration, rangeToRows, rowAtValue } from '../../core/time'
 import type { Channel, Dataset, RowRange, Segment, TimeAxis } from '../../core/types'
 import { MINUS, MISSING, formatNumber, tooltipHeader, tooltipRow } from '../../charts/format'
+import { formatTimeRange } from '../../components/timeText'
+import { windowStats } from '../points/pointsModel'
 
 /** Clock axes (hour-of-day values) are drawn on an ECharts time axis, in milliseconds (UTC). */
 export const MS_PER_HOUR = 3_600_000
@@ -244,6 +245,90 @@ function sameNumbers(a: readonly number[], b: readonly number[]): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i])
 }
 
+// ------------------------------------------------------------------ level of detail (what the charts are handed)
+
+/**
+ * Coarser copies of an interleaved series for drawing. Each level halves the one below: every bucket of up to 4 points
+ * keeps its lowest and highest point, in time order, so peaks and spikes survive; (x, NaN) pairs (breaks, missing
+ * values) pass through and are never merged across. Level 0 is `base` itself; levels stop once one holds at most
+ * `floor` points. O(n) in all.
+ */
+export function minMaxLevels(base: Float64Array, floor = 1024): Float64Array[] {
+  const levels = [base]
+  let current = base
+  while (current.length / 2 > floor) {
+    const next = halveMinMax(current)
+    if (next.length >= current.length) break
+    levels.push(next)
+    current = next
+  }
+  return levels
+}
+
+function halveMinMax(src: Float64Array): Float64Array {
+  const n = src.length / 2
+  const out = new Float64Array(src.length)
+  let k = 0
+  let i = 0
+  while (i < n) {
+    if (Number.isNaN(src[2 * i + 1])) {
+      out[k++] = src[2 * i]
+      out[k++] = NaN
+      i += 1
+      continue
+    }
+    let end = i + 1
+    while (end < n && end < i + 4 && !Number.isNaN(src[2 * end + 1])) end += 1
+    let lo = i
+    let hi = i
+    for (let j = i + 1; j < end; j += 1) {
+      if (src[2 * j + 1] < src[2 * lo + 1]) lo = j
+      if (src[2 * j + 1] > src[2 * hi + 1]) hi = j
+    }
+    const a = Math.min(lo, hi)
+    const b = Math.max(lo, hi)
+    out[k++] = src[2 * a]
+    out[k++] = src[2 * a + 1]
+    if (b !== a) {
+      out[k++] = src[2 * b]
+      out[k++] = src[2 * b + 1]
+    }
+    i = end
+  }
+  return out.slice(0, k)
+}
+
+const levelCache = new WeakMap<Float64Array, Float64Array[]>()
+
+/** minMaxLevels of the whole-file series (cachedSeriesData), memoised per series. */
+export function cachedSeriesLevels(
+  axisValues: Float64Array,
+  factor: number,
+  breaks: readonly number[],
+  values: Float64Array,
+): Float64Array[] {
+  const base = cachedSeriesData(axisValues, factor, breaks, values)
+  let levels = levelCache.get(base)
+  if (!levels) {
+    levels = minMaxLevels(base)
+    levelCache.set(base, levels)
+  }
+  return levels
+}
+
+/**
+ * The coarsest level that still gives `perPixel` points per device pixel across the visible window (`fraction` of the
+ * whole axis, drawn `plotWidthPx` wide). The charts draw from it, so zooming and panning cost what the screen shows,
+ * not the length of the log (ECharts' LTTB then samples the window as before).
+ */
+export function levelFor(levelLengths: readonly number[], fraction: number, plotWidthPx: number, perPixel = 2): number {
+  const f = Math.min(1, Math.max(0, fraction))
+  for (let k = levelLengths.length - 1; k > 0; k -= 1) {
+    if ((levelLengths[k] / 2) * f >= perPixel * plotWidthPx) return k
+  }
+  return 0
+}
+
 // ------------------------------------------------------------------ overlay geometry (fractions of the plot width)
 
 /** Where [x0, x1] (chart units) sits in the window, as fractions of the plot width, clipped; null when outside. */
@@ -438,16 +523,66 @@ export function figureTick(frame: XFrame, window: XWindow, x: number): string {
   return formatTimeTick(frame, x)
 }
 
-/** "t = 120.4 → 132.7 s", "09:15:15 → 09:15:27", "rows 1200 → 1322" for two axis values. */
-export function formatTimeRange(axis: TimeAxis, from: number, to: number): string {
-  if (axis.clock) return `${formatClock(from)} → ${formatClock(to)}`
-  if (axis.id === 'index') return `rows ${Math.round(from)} → ${Math.round(to)}`
-  const span = Math.abs(to - from)
-  const decimals = axis.unit === 'h' ? 4 : span >= 10 ? 1 : span >= 1 ? 2 : 3
-  const a = withMinus(from.toFixed(decimals))
-  const b = withMinus(to.toFixed(decimals))
-  if (axis.unit === 's') return `t = ${a} → ${b} s`
-  return axis.unit ? `${a} → ${b} ${axis.unit}` : `${a} → ${b}`
+/** The app's one range format ("120.4 – 132.7 s"), shared with components/hooks rangeText. */
+export { formatTimeRange }
+
+// ------------------------------------------------------------------ typed times (Set window dialog)
+
+/** The digits a typed time needs to resolve one sample step on this axis. */
+function inputDecimals(axis: TimeAxis, step: number): number {
+  if (axis.unit === 'h') return clamp(decimalsFor(step), 4, 6)
+  return decimalsFor(step)
+}
+
+/** An axis value as text to edit in a time field: "123.45", "09:15:15", "1234" (row). ASCII minus. */
+export function axisInputText(axis: TimeAxis, value: number, step: number): string {
+  if (!Number.isFinite(value)) return ''
+  if (axis.clock) return formatClockPrecise(value, step > 0 && step * 3600 < 1 ? 1 : 0)
+  if (axis.id === 'index') return String(Math.round(value))
+  return String(Number(value.toFixed(inputDecimals(axis, step))))
+}
+
+/**
+ * A typed time on this axis, or null when it does not read as one: a number ("120", "120.5 s", "−3") on second, hour
+ * and row axes ("row 1200" too), a clock time ("09:15", "09:15:30.5") on hour-of-day axes. A clock time is put on
+ * the day the axis covers (clock axes may run past 24 h when the flight crosses midnight).
+ */
+export function parseAxisInput(axis: TimeAxis, text: string): number | null {
+  const typed = text.trim().replace(/[−–]/g, '-').replace(/,/g, '.')
+  if (!typed) return null
+  if (axis.clock) {
+    const match = /^(\d{1,2}):(\d{1,2})(?::(\d{1,2}(?:\.\d*)?))?$/.exec(typed)
+    if (!match) return null
+    const h = Number(match[1])
+    const m = Number(match[2])
+    const sec = match[3] === undefined ? 0 : Number(match[3])
+    if (h > 23 || m > 59 || !(sec < 60)) return null
+    const hours = h + m / 60 + sec / 3600
+    const values = axis.values
+    if (!values.length) return hours
+    const lo = values[0]
+    const hi = values[values.length - 1]
+    // The day offset (…, −24, 0, 24, 48) that puts the time closest to the axis.
+    let best = hours
+    let bestDistance = Infinity
+    for (let day = Math.floor(lo / 24) - 1; day <= Math.floor(hi / 24) + 1; day += 1) {
+      const candidate = hours + 24 * day
+      const distance = candidate < lo ? lo - candidate : candidate > hi ? candidate - hi : 0
+      if (distance < bestDistance) {
+        best = candidate
+        bestDistance = distance
+      }
+    }
+    return best
+  }
+  let body = typed
+  if (axis.id === 'index') body = body.replace(/^rows?\s*/i, '')
+  else if (axis.unit && body.toLowerCase().endsWith(axis.unit.toLowerCase())) {
+    body = body.slice(0, body.length - axis.unit.length).trim()
+  }
+  if (!/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(body)) return null
+  const value = Number(body)
+  return Number.isFinite(value) ? value : null
 }
 
 export interface SelectionSummary {
@@ -456,7 +591,7 @@ export interface SelectionSummary {
   rows: string
 }
 
-/** The selection bar's "t = 120.4 → 132.7 s · 12.3 s · 123 rows", in parts. */
+/** The selection bar's "120.4 – 132.7 s · 12.3 s · 123 rows", in parts. */
 export function selectionSummary(ds: Dataset, axis: TimeAxis, range: RowRange): SelectionSummary {
   const n = Math.max(0, Math.min(ds.rowCount, range[1]) - Math.max(0, range[0]))
   const start = clamp(range[0], 0, Math.max(0, ds.rowCount - 1))
@@ -492,8 +627,8 @@ export function signedNumber(value: number, significant = 2): string {
 /** Mean ± σ and drift per minute (against elapsed time) of each channel over the rows. */
 export function steadyStats(ds: Dataset, channels: readonly Channel[], range: RowRange): SteadyStat[] {
   return channels.map((ch) => {
-    const stats = rangeStats(ch.values, range[0], range[1])
-    const drift = driftPerMinute(ch.values, ds.elapsed, range[0], range[1])
+    // Headings across north are unwrapped first, as in the Test points table.
+    const { stats, drift } = windowStats(ch, ds.elapsed, range[0], range[1])
     const unit = ch.meta.unit
     const meanText = stats.n > 0 ? `${formatNumber(stats.mean)} ± ${formatNumber(stats.std, 2)}` : MISSING
     const driftText = Number.isNaN(drift) ? MISSING : `${signedNumber(drift)} ${unit ? `${unit}/min` : '/min'}`

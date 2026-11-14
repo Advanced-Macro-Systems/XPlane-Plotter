@@ -6,8 +6,9 @@
 // (right-assoc); comparisons give 1/0, or NaN when either side is NaN; a NaN condition makes ?: NaN; constants win
 // over channel aliases and [name] always means a channel. Real-valued like JavaScript's Math: sqrt(−1), ln(−1),
 // asin(2) and (−8)^(1/3) are NaN, never complex (xppReal). The output is fully parenthesised and element-wise over
-// column vectors; `t` is the script's elapsed-time vector `el`. Helpers used are listed in `helpers` (local MATLAB
-// functions the script must define: xppReal, xppCmp, xppIf, xppDdt, xppInteg, xppSmooth, xppLag).
+// column vectors; `t` is the script's elapsed-time vector `el`, and the time-aware functions also take its segment
+// starts `segStart`, so they never reach across a sim reset or recording gap. Helpers used are listed in `helpers`
+// (local MATLAB functions the script must define: xppReal, xppCmp, xppIf, xppDdt, xppInteg, xppSmooth, xppLag).
 
 export interface MatlabFormula {
   /** MATLAB expression (a column vector or a scalar) */
@@ -81,10 +82,10 @@ const FUNCTIONS: Record<string, FunctionSpec> = {
   deg: { min: 1, max: 1, emit: (a) => `(${a[0]} * 180 / pi)` },
   rad: { min: 1, max: 1, emit: (a) => `(${a[0]} * pi / 180)` },
   clamp: { min: 3, max: 3, emit: (a) => `min(max(${a[0]}, ${a[1]}, 'includenan'), ${a[2]}, 'includenan')` },
-  diff: { min: 1, max: 1, emit: (a) => `xppDdt(${a[0]}, el)`, helpers: ['xppDdt'] },
-  integ: { min: 1, max: 1, emit: (a) => `xppInteg(${a[0]}, el)`, helpers: ['xppInteg'] },
-  smooth: { min: 2, max: 2, emit: (a) => `xppSmooth(${a[0]}, el, ${a[1]})`, helpers: ['xppSmooth'] },
-  lag: { min: 2, max: 2, emit: (a) => `xppLag(${a[0]}, ${a[1]}, nRows)`, helpers: ['xppLag'] },
+  diff: { min: 1, max: 1, emit: (a) => `xppDdt(${a[0]}, el, segStart)`, helpers: ['xppDdt'] },
+  integ: { min: 1, max: 1, emit: (a) => `xppInteg(${a[0]}, el, segStart)`, helpers: ['xppInteg'] },
+  smooth: { min: 2, max: 2, emit: (a) => `xppSmooth(${a[0]}, el, ${a[1]}, segStart)`, helpers: ['xppSmooth'] },
+  lag: { min: 2, max: 2, emit: (a) => `xppLag(${a[0]}, ${a[1]}, nRows, segStart)`, helpers: ['xppLag'] },
 }
 
 const COMPARISONS = new Set(['<', '<=', '>', '>=', '==', '!='])

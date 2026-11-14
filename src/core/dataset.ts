@@ -2,10 +2,14 @@
 // segments, sample rate, warnings and the workspace signature.
 // OWNER: parser agent (buildDataset). computeStats and channelById are final — keep them as they are.
 
-import type { Channel, ChannelStats, Dataset, Segment } from './types'
+import type { Channel, Dataset, Segment } from './types'
 import type { RawTable } from './parse'
 import { describeHeader } from './channels'
+import { computeStats } from './channelStats'
 import { buildElapsed, pickTimeSource } from './time'
+
+// computeStats lives in its own module (the parser worker uses it too); it is still imported from here.
+export { computeStats }
 
 /** Time resets/gaps listed one by one in the warnings before they are summarised. */
 const MAX_TIME_NOTES = 5
@@ -18,7 +22,9 @@ export function buildDataset(raw: RawTable, source: { name: string; size: number
   const warnings = [...raw.warnings]
   if (raw.skippedRows > 0) {
     const n = raw.skippedRows
-    const why = raw.format === 'xplane' ? 'wrong number of values' : 'wrong number of values, or no numbers'
+    // X-Plane rows are skipped for their cell count, or for being a stray line of text (a typed note, garbled bytes).
+    const why =
+      raw.format === 'xplane' ? 'wrong number of values, or a line of text' : 'wrong number of values, or no numbers'
     warnings.push(`Skipped ${n} unreadable row${n === 1 ? '' : 's'} (${why}).`)
   }
 
@@ -71,7 +77,9 @@ function fileChannels(raw: RawTable): Channel[] {
     for (let k = occurrence + 1; taken.has(id); k += 1) id = `${token}#${k}`
     taken.add(id)
     const values = raw.columns[column]
-    return { id, token, occurrence, column, meta: metas[column], values, stats: computeStats(values) }
+    // The parser worker sends the stats with the columns (one pass over every value, off the main thread).
+    const stats = raw.stats?.length === raw.columns.length ? raw.stats[column] : computeStats(values)
+    return { id, token, occurrence, column, meta: metas[column], values, stats }
   })
 }
 
@@ -127,33 +135,4 @@ export function channelById(ds: Dataset, id: string): Channel | undefined {
     lookup.set(ds, table)
   }
   return table.get(id)
-}
-
-/** NaN-aware stats over all values. `constant` is true when every finite value is equal or there are none. */
-export function computeStats(values: Float64Array): ChannelStats {
-  let finite = 0
-  let min = Infinity
-  let max = -Infinity
-  let mean = 0
-  let m2 = 0
-  for (let i = 0; i < values.length; i += 1) {
-    const v = values[i]
-    if (!Number.isFinite(v)) continue
-    finite += 1
-    if (v < min) min = v
-    if (v > max) max = v
-    // Welford's online update: stable for large offsets (e.g. absolute times, positions in metres).
-    const delta = v - mean
-    mean += delta / finite
-    m2 += delta * (v - mean)
-  }
-  if (finite === 0) return { min: NaN, max: NaN, mean: NaN, std: NaN, finite: 0, constant: true }
-  return {
-    min,
-    max,
-    mean,
-    std: finite > 1 ? Math.sqrt(m2 / (finite - 1)) : 0,
-    finite,
-    constant: min === max,
-  }
 }

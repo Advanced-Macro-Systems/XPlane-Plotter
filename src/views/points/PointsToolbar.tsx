@@ -7,10 +7,9 @@ import { ChannelPicker } from '../../components/ChannelPicker'
 import { ExportMenu, type ExportItem } from '../../components/ExportMenu'
 import { pointsTableCsv } from '../../core/export/csv'
 import { downloadText } from '../../core/export/download'
-import { matlabScript, matlabScriptName } from '../../core/export/matlab'
-import { serializeSession } from '../../core/export/session'
 import type { Dataset, PointGroup, Workspace } from '../../core/types'
-import { addGroup, getWorkspace, removeGroup, setTracked, toast, updateGroup, useApp } from '../../store/app'
+import { exportMatlab, saveSessionFile } from '../../layout/fileActions'
+import { addGroup, getWorkspace, removeGroup, setTracked, toast, updateGroup } from '../../store/app'
 import { Dropdown } from '../../ui/Dropdown'
 import { exportStem } from '../xy/xyControls'
 import { MAX_TRACKED, SLOT_NAMES } from './pointsModel'
@@ -42,34 +41,15 @@ export function PointsToolbar({ ds, ws, canAdd, onAdd, onImportSession }: Points
     },
     {
       section: 'MATLAB',
-      label: 'MATLAB script',
+      label: 'MATLAB script: table and X–Y plot',
       hint: 'Re-reads the log: the test-point table and the X–Y plot',
-      onSelect: () => {
-        const current = getWorkspace() ?? ws
-        try {
-          const script = matlabScript({
-            ds,
-            ws: current,
-            include: { points: true, xy: true, time: false, modes: false },
-            view: useApp.getState().view,
-            modeRows: null,
-          })
-          const name = matlabScriptName(ds.name)
-          downloadText(name, script, 'text/plain')
-          toast(`Saved ${name}. Put it next to ${ds.name} and run it in MATLAB: tables and figures go to ./out/.`, 'success')
-        } catch (error) {
-          toast(`Could not write the MATLAB script: ${error instanceof Error ? error.message : String(error)}`, 'error')
-        }
-      },
+      onSelect: () => void exportMatlab({ part: 'xy' }),
     },
     {
       section: 'Session',
       label: 'Session file (JSON)',
       hint: 'Test points, groups, plots and formulas, not the data',
-      onSelect: () => {
-        const current = getWorkspace() ?? ws
-        downloadText(`${exportStem(ds.name, 'session')}.json`, serializeSession(ds, current), 'application/json')
-      },
+      onSelect: saveSessionFile,
     },
     {
       label: 'Import session…',
@@ -100,6 +80,7 @@ export function PointsToolbar({ ds, ws, canAdd, onAdd, onImportSession }: Points
           buttonClassName="btn btn-sm btn-ghost"
           title="Add a test-point group"
           width={280}
+          haspopup="dialog"
         >
           {(close) => <NewGroupForm close={close} />}
         </Dropdown>
@@ -152,6 +133,7 @@ function GroupChip({ group, count, canDelete, fallback }: { group: PointGroup; c
       buttonClassName={`chip chip-md pt-group-chip slot-${group.slot}`}
       title={`${group.name}: ${count} point${count === 1 ? '' : 's'}. Click to rename, recolour or delete.`}
       width={284}
+      haspopup="dialog"
     >
       {(close) => <GroupMenu group={group} count={count} canDelete={canDelete} fallback={fallback} close={close} />}
     </Dropdown>

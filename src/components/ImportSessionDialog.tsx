@@ -1,11 +1,14 @@
 // Confirms a session import: says whether the session was saved for this very file (signature) and what it holds,
-// and warns when it was not (test points are row ranges, so they would land on other data).
+// and warns when it was not (test points are row ranges, so they would land on other data). Every way in asks here
+// first (Test points → Import session, Settings → Load session file, Open file, a dropped .json): the shell shows it
+// for the session fileActions.askToImportSession() holds.
 
 import { AlertIcon, CheckCircleIcon } from '@primer/octicons-react'
-import type { SessionFile } from '../../core/export/session'
-import type { Dataset, Workspace } from '../../core/types'
-import { importWorkspace, toast } from '../../store/app'
-import { Modal } from '../../ui/Modal'
+import type { SessionFile } from '../core/export/session'
+import type { Dataset, Workspace } from '../core/types'
+import { importWorkspace, toast } from '../store/app'
+import { Modal } from '../ui/Modal'
+import './importSession.css'
 
 function savedAt(iso: string): string {
   const date = new Date(iso)
@@ -51,7 +54,7 @@ export function ImportSessionDialog({ ds, ws, session, onClose }: ImportSessionD
         </>
       }
     >
-      <div className="pt-import">
+      <div className="session-import">
         {matches ? (
           <div className="callout callout-success" role="note">
             <CheckCircleIcon size={16} />
@@ -69,7 +72,7 @@ export function ImportSessionDialog({ ds, ws, session, onClose }: ImportSessionD
             </span>
           </div>
         )}
-        <dl className="pt-import-facts">
+        <dl className="session-import-facts">
           <div>
             <dt>Test points</dt>
             <dd>
@@ -90,7 +93,7 @@ export function ImportSessionDialog({ ds, ws, session, onClose }: ImportSessionD
             <dd>{incoming.derived.length}</dd>
           </div>
         </dl>
-        <p className="pt-import-note">
+        <p className="session-import-note">
           Importing replaces this file’s test points, groups, plot settings and formulas. Export a session first if you
           want to keep the current ones.
         </p>

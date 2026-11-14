@@ -92,6 +92,11 @@
   background: var(--btn-bg);
   outline: none;
 }
+/* The keyboard position needs more than the hover tint (1.1:1): the 2 px focus ring, inside the item. */
+.menu-item:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
 .menu-item:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -226,8 +231,11 @@
 }
 .toast-text {
   flex: 1;
+  /* A long file name is one unbreakable word: without these the text keeps its width and pushes the buttons out. */
+  min-width: 0;
   margin: 0;
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 .toast-action {
   flex: none;

@@ -5,6 +5,7 @@ import { ArrowSwitchIcon, ChevronDownIcon, InfoIcon, AlertIcon, XIcon } from '@p
 import { useEffect, useEffectEvent, useId, useMemo, useRef, useState } from 'react'
 import { ChannelPicker } from '../../components/ChannelPicker'
 import { Segmented } from '../../components/Segmented'
+import { ViewSidebar } from '../../components/ViewSidebar'
 import { channelTitle } from '../../core/channels'
 import { channelById } from '../../core/dataset'
 import type { Dataset, RowRange, Workspace, XYConfig } from '../../core/types'
@@ -22,6 +23,12 @@ import {
 } from './xyControls'
 import { MAX_Y, unitMismatch, type MarkerShape, type XYData, type XYLabels } from './xyModel'
 import { availablePresets, matchingPreset, type ResolvedPreset } from './xyPresets'
+
+/**
+ * Width of the sidebar's popups (presets, channel pickers): the sidebar's inner width (--sidebar-w 300 px less its
+ * 16 px padding each side). A wider popup is cut off by the sidebar, whose scrolling also shifts it sideways.
+ */
+const POPUP_WIDTH = 268
 
 interface XYSidebarProps {
   ds: Dataset
@@ -48,7 +55,7 @@ export function XYSidebar({ ds, ws, view, data, defaults }: XYSidebarProps) {
   const xId = xy.x
 
   return (
-    <aside className="view-sidebar xy-sidebar" aria-label="Plot settings">
+    <ViewSidebar className="xy-sidebar" label="Plot settings">
       <section className="view-sidebar-section">
         <h3 className="eyebrow">Preset</h3>
         {presets.length ? (
@@ -81,6 +88,7 @@ export function XYSidebar({ ds, ws, view, data, defaults }: XYSidebarProps) {
               onChange={(ids) => setXY({ x: ids[0] ?? null })}
               ariaLabel="X-axis channel"
               placeholder="Choose the X channel"
+              width={POPUP_WIDTH}
             />
           </div>
         </div>
@@ -121,6 +129,7 @@ export function XYSidebar({ ds, ws, view, data, defaults }: XYSidebarProps) {
               max={MAX_Y}
               onChange={(ids) => setXY({ ys: ids })}
               ariaLabel="Y-axis channels"
+              width={POPUP_WIDTH}
               label={
                 <span className="cp-button-text">
                   {ys.length ? 'Add or remove Y channels' : <span className="subtle">Choose Y channels</span>}
@@ -238,7 +247,7 @@ export function XYSidebar({ ds, ws, view, data, defaults }: XYSidebarProps) {
         <LabelField label="Y label" value={xy.yLabel} placeholder={defaults.y} onCommit={(yLabel) => setXY({ yLabel })} />
         <p className="xy-note">Empty labels follow the channels. The title appears on exported figures.</p>
       </section>
-    </aside>
+    </ViewSidebar>
   )
 }
 
@@ -256,34 +265,39 @@ function PresetMenu({ presets, active }: { presets: readonly ResolvedPreset[]; a
       buttonClassName="cp-button"
       ariaLabel="Plot preset"
       title={active?.hint}
-      width={340}
+      width={POPUP_WIDTH}
     >
-      {(close) =>
-        SECTIONS.map((section) => {
-          const items = presets.filter((p) => p.section === section)
-          if (!items.length) return null
-          return (
-            <div key={section} role="group" aria-label={section}>
-              <p className="menu-heading">{section}</p>
-              {items.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  className="menu-item menu-item-stack xy-preset-item"
-                  aria-current={p.id === active?.id ? 'true' : undefined}
-                  onClick={() => {
-                    setXY(p.config)
-                    close()
-                  }}
-                >
-                  <span>{p.name}</span>
-                  <small>{p.hint}</small>
-                </button>
-              ))}
-            </div>
-          )
-        })
-      }
+      {(close) => (
+        <div role="menu" aria-label="Plot presets">
+          {SECTIONS.map((section) => {
+            const items = presets.filter((p) => p.section === section)
+            if (!items.length) return null
+            return (
+              <div key={section} role="group" aria-label={section}>
+                <p className="menu-heading" aria-hidden="true">
+                  {section}
+                </p>
+                {items.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    role="menuitem"
+                    className="menu-item menu-item-stack xy-preset-item"
+                    aria-current={p.id === active?.id ? 'true' : undefined}
+                    onClick={() => {
+                      setXY(p.config)
+                      close()
+                    }}
+                  >
+                    <span>{p.name}</span>
+                    <small>{p.hint}</small>
+                  </button>
+                ))}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </Dropdown>
   )
 }

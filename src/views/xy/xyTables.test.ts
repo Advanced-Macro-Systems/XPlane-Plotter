@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildXYData, computeFits } from './xyModel'
 import { channel, dataset, elapsedAxis, range, workspace, wsArgs, xyConfig } from './xyFixtures'
-import { fitRows, fitTableTsv, meanRows, meansTableTsv, plainNumber, samplesCsv, textCell } from './xyTables'
+import { equationText, fitRows, fitTableTsv, meanRows, meansTableTsv, plainNumber, samplesCsv, textCell } from './xyTables'
 
 function setup() {
   const x = range(10)
@@ -37,6 +37,22 @@ describe('fit rows', () => {
     expect(first.coefficients[0].value).toBeCloseTo(-3, 1)
     expect(first.coefficients[0].se).toBeGreaterThan(0)
     expect(first.n).toBe(6)
+  })
+
+  it('says whose fit each equation chip is, so colour is not the only clue', () => {
+    const { data } = setup()
+    const rows = fitRows(data, computeFits(data, 'linear'))
+    expect(rows[0].grouped).toBe(true)
+    expect(equationText(rows[0], true)).toMatch(/^Trim · Elevator: Elevator = −3/)
+    expect(equationText(rows[0], false)).toMatch(/^Elevator = −3/)
+    // A channel's fit already starts with the channel; a fit that failed says which one.
+    expect(equationText({ name: 'Elevator [deg]', grouped: false, equation: 'Elevator = 2·CL', problem: '' }, true)).toBe('Elevator = 2·CL')
+    expect(equationText({ name: 'Dynamic', grouped: true, equation: '', problem: 'Needs 2 or more test-point means.' }, true)).toBe(
+      'Dynamic: Needs 2 or more test-point means.',
+    )
+    expect(equationText({ name: 'Dynamic', grouped: true, equation: '', problem: 'Needs 2 or more test-point means.' }, false)).toBe(
+      'Needs 2 or more test-point means.',
+    )
   })
 
   it('names higher-order coefficients by power', () => {

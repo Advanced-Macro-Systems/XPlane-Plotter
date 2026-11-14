@@ -8,7 +8,7 @@
 // injection: a text cell starting with = + - @ gets a leading apostrophe, as OWASP recommends. Numbers are never altered.
 
 import { channelTitle } from '../channels'
-import { driftPerMinute, rangeStats } from '../analysis/stats'
+import { windowStats } from '../analysis/windowStats'
 import { channelById } from '../dataset'
 import type { Channel, Dataset, RowRange, Workspace } from '../types'
 
@@ -157,13 +157,13 @@ export function pointsTableCsv(ds: Dataset, ws: Workspace, channelIds: string[],
       String(n),
     ]
     for (const ch of channels) {
-      const stats = rangeStats(ch.values, start, end)
+      // As in the Test points table: a heading window through north is unwrapped first (windowStats).
+      const { stats, drift } = windowStats(ch, ds.elapsed, start, end)
       if (stats.n === 0) {
         // No finite sample in the window: empty cells rather than whatever an empty min/max would be.
         cells.push('', '', '', '', '')
         continue
       }
-      const drift = driftPerMinute(ch.values, ds.elapsed, start, end)
       cells.push(numCell(stats.mean), numCell(stats.std), numCell(stats.min), numCell(stats.max), numCell(drift))
     }
     cells.push(point.hidden ? '1' : '0')

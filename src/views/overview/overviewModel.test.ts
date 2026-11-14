@@ -8,6 +8,7 @@ import {
   glancePanels,
   glanceTime,
   groundTrack,
+  trackPlotBox,
   groupsShown,
   markerLegend,
   overviewFigures,
@@ -262,7 +263,7 @@ describe('segment markers and test-point bands', () => {
     ])
   })
 
-  it('bands visible points from their first to last row, in the group colour', () => {
+  it('bands visible points from their first to last row', () => {
     const ws = workspace({
       points: [
         { id: 't1', name: 'A', groupId: 'g2', start: 2, end: 5 },
@@ -271,8 +272,8 @@ describe('segment markers and test-point bands', () => {
       ],
     })
     expect(pointBands(ds, ws)).toEqual([
-      { from: 1, to: 2, slot: 3 },
-      { from: 4, to: 4.5, slot: 0 },
+      { from: 1, to: 2 },
+      { from: 4, to: 4.5 },
     ])
     expect(pointBands(ds, null)).toEqual([])
   })
@@ -343,6 +344,83 @@ describe('groundTrack', () => {
       ramp(3),
     )
     expect(groundTrack(ds)).toBeNull()
+  })
+
+  it('shows a parked stretch before a sim reload as one position and starts the track where it moves', () => {
+    // Rows 0–3 parked at one spot (a few centimetres of jitter), then the reload puts the aircraft in flight elsewhere.
+    const lat = [50, 50.0000001, 50, 50.0000001, 51.0, 51.01, 51.02, 51.03]
+    const lon = [-1, -1, -1.0000001, -1, -2.0, -2.01, -2.02, -2.03]
+    const ds = dataset(
+      [
+        channel('_totl,_time', ramp(8), meta('t', 's')),
+        channel('__lat,__deg', lat, meta('Latitude', 'deg'), 1),
+        channel('__lon,__deg', lon, meta('Longitude', 'deg'), 2),
+      ],
+      ramp(8),
+      {
+        segments: [
+          { start: 0, end: 4, reason: 'start' },
+          { start: 4, end: 8, reason: 'reset' },
+        ],
+      },
+    )
+    const track = groundTrack(ds)!
+    expect(track.path.slice(0, 3)).toEqual([[-1, 50], [null, null], [-2, 51]])
+    expect(track.path).toHaveLength(6)
+    expect(track.start).toEqual({ lon: -2, lat: 51, t: 4 })
+    expect(track.end).toEqual({ lon: -2.03, lat: 51.03, t: 7 })
+    // The track starts after the reload: nothing moved before it, so that is the Start, not a restart.
+    expect(track.restarts).toEqual([])
+    // The parked position stays on the map.
+    expect(track.latExtent[0]).toBe(50)
+  })
+
+  it('marks where the track picks up again after a recording gap', () => {
+    const lat = [51.0, 51.01, 51.02, 51.2, 51.21, 51.22]
+    const lon = [-2.0, -2.01, -2.02, -2.2, -2.21, -2.22]
+    const ds = dataset(
+      [
+        channel('_totl,_time', ramp(6), meta('t', 's')),
+        channel('__lat,__deg', lat, meta('Latitude', 'deg'), 1),
+        channel('__lon,__deg', lon, meta('Longitude', 'deg'), 2),
+      ],
+      ramp(6),
+      {
+        segments: [
+          { start: 0, end: 3, reason: 'start' },
+          { start: 3, end: 6, reason: 'gap' },
+        ],
+      },
+    )
+    const track = groundTrack(ds)!
+    expect(track.start).toEqual({ lon: -2, lat: 51, t: 0 })
+    expect(track.restarts).toEqual([{ lon: -2.2, lat: 51.2, t: 3, reason: 'gap' }])
+    expect(track.end).toEqual({ lon: -2.22, lat: 51.22, t: 5 })
+    expect(track.path[3]).toEqual([null, null])
+  })
+})
+
+describe('trackPlotBox', () => {
+  const insets = { left: 66, right: 28, top: 22, bottom: 48 }
+
+  it('makes the plot as tall as the track is long north–south, within limits', () => {
+    // 400 km east–west by 100 km north–south in a 398 px card: the plot area is 304 px wide and 76 px would do, so 200.
+    expect(trackPlotBox({ eastWest: 400, northSouth: 100 }, 398, insets).height).toBe(200)
+    // Square-ish: as tall as wide (plus the margins).
+    expect(trackPlotBox({ eastWest: 10, northSouth: 8 }, 398, insets).height).toBe(Math.round(304 * 0.8 + 70))
+    // North–south or no east–west extent at all: the tallest box.
+    expect(trackPlotBox({ eastWest: 1, northSouth: 50 }, 398, insets).height).toBe(420)
+    expect(trackPlotBox({ eastWest: 0, northSouth: 5 }, 398, insets).height).toBe(420)
+  })
+
+  it('gives equalAspectRanges the plot area’s shape, so latitude spans about what the track needs', () => {
+    const size = { eastWest: 400, northSouth: 100 }
+    const box = trackPlotBox(size, 398, insets)
+    expect(box.aspect).toBeCloseTo(304 / 130)
+    // The latitude axis spans ~1.7× the track's north–south extent (it was ~4.5× in a 465 px box).
+    const shown = (304 / box.aspect) * (400 / 304)
+    expect(shown / size.northSouth).toBeLessThan(2)
+    expect(trackPlotBox(size, 0, insets)).toEqual({ height: 300, aspect: 1 })
   })
 })
 

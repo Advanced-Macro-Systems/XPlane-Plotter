@@ -291,6 +291,25 @@
 .ch-table td.ch-c-menu {
   padding: 0 8px 0 4px;
 }
+/* Numbers are never cut with an ellipsis (a cut "0.00025…" reads as another value): statText keeps them short. */
+.ch-table td.num {
+  text-overflow: clip;
+}
+
+/* The row actions (Plot in Time history, Use as X …) stay in reach on the right while the rest scrolls sideways, as in
+   Test points. */
+.ch-table th.ch-c-menu,
+.ch-table td.ch-c-menu {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  box-shadow:
+    -6px 0 8px -8px var(--pin-shadow),
+    inset 1px 0 0 var(--border-muted);
+}
+.ch-table th.ch-c-menu {
+  z-index: 3;
+}
 
 /* The channel column stays put while the rest scrolls sideways. */
 .ch-table .ch-c-label {
@@ -686,6 +705,10 @@ li:last-child > .ch-fd-item {
 .ch-fd-item:focus-visible {
   background: var(--surface-2);
   outline: none;
+}
+.ch-fd-item:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
 }
 .ch-fd-item code {
   max-width: 100%;

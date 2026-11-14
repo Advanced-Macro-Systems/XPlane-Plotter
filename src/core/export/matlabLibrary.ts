@@ -19,13 +19,15 @@ const READER = String.raw`function [D, names] = readXPlaneLog(file)
 %   header cells, repeated tokens included). The rules are the app parser's (src/core/parse/streaming.ts):
 %   1. Lines end at "\n" (one "\r" before it is dropped). Blank characters are space, tab and NUL (a log cut off
 %      by a power loss can end in NUL bytes); lines of only blanks are ignored.
-%   2. The header is the first non-blank line not starting with "#". X-Plane logs separate cells with "|"
-%      (other text tables: TAB, else ";", else ",", with "double quotes" around cells).
+%   2. The header is the first non-blank line not starting with "#". X-Plane logs separate cells with "|": the
+%      header has two or more, or ends with one (other text tables: TAB if the header has one, else the more
+%      frequent of ";" and ",", with "double quotes" around cells; text in quotes never counts).
 %   3. Cells are split at the delimiter and trimmed of blanks; an empty last cell (X-Plane ends lines with "| ")
 %      is dropped.
 %   4. A cell is a number as JavaScript's Number() reads it; anything else is NaN.
 %   5. A header-like line (some cell is text, none is a number or a nan/inf spelling) equal to the header is
-%      skipped; a different one ends the table, or replaces the header if no data row came before it.
+%      skipped; a different one of X-Plane column names ("_Vind,_kias") ends the table, or replaces the header if
+%      no data row came before it. Any other header-like line (a typed note, garbled bytes) is skipped.
 %   6. A data line is kept if it has exactly numel(names) cells (other tables: and at least one number).
 %   7. A last line without "\n" is dropped if it has fewer cells than the header or does not end with "|".
 %   Fast on large logs: the plain numeric lines (all of them in a normal log) are converted by one sscanf call.
@@ -55,17 +57,16 @@ end
 if h == 0
     error('xpp:noHeader', 'No header line in %s.', file);
 end
-xplane = contains(lines{h}, '|');
+bare = regexprep(lines{h}, '"[^"]*("|$)', '"');          % text in quotes does not count (to the end if unclosed)
+xplane = count(bare, '|') >= 2 || endsWith(regexprep(bare, ['[ \t' char(0) ']+$'], ''), '|');
 if xplane
     delim = '|';
+elseif contains(bare, char(9))
+    delim = char(9);
+elseif count(bare, ';') > 0 && count(bare, ';') >= count(bare, ',')
+    delim = ';';
 else
-    bare = regexprep(lines{h}, '"[^"]*"', '');           % delimiters inside quotes do not count
     delim = ',';
-    if contains(bare, char(9))
-        delim = char(9);
-    elseif contains(bare, ';')
-        delim = ';';
-    end
 end
 decimalComma = delim == ';';
 headerCells = xppNormalize(xppSplitCells(lines{h}, delim, ~xplane));
@@ -161,6 +162,11 @@ for j = reshape(find(headerLike), 1, [])
     if isequal(cells, headerCells)
         skip(j) = true;
     elseif xplane
+        filled = cells(~cellfun('isempty', cells));
+        shaped = ~cellfun('isempty', regexp(filled, '^[^, ]+,[^, ]+', 'once'));
+        if ~contains(B{j}, '|') || 2 * nnz(shaped) <= numel(filled)
+            continue                                     % a typed note or garbled bytes: never a data row
+        end
         earlier = first:j - 1;
         if any(nCells(earlier) == nCols & ~headerLike(earlier))
             stop = j;                                    % the Data Output selection changed: first table only
@@ -570,8 +576,47 @@ end
 end`,
   },
   {
+    name: 'xppOnAxes',
+    deps: [],
+    code: String.raw`function [keep, outside] = xppOnAxes(x, y, rows, xLimits, yLimits)
+%XPPONAXES The rows whose (x, y) lie inside the axis ranges the app showed ([] = no limit on that axis), and the
+%   number of samples with values left out. Like the app, a fit through the samples keeps to its axes, so a few
+%   absurd values (CL on the ground at zero airspeed) cannot swamp it.
+rows = rows(:);
+xs = x(rows);
+ys = y(rows);
+inside = true(size(rows));
+if ~isempty(xLimits)
+    inside = inside & xs >= xLimits(1) & xs <= xLimits(2);
+end
+if ~isempty(yLimits)
+    inside = inside & ys >= yLimits(1) & ys <= yLimits(2);
+end
+keep = rows(inside);
+outside = sum(~inside & isfinite(xs) & isfinite(ys));
+end`,
+  },
+  {
+    name: 'xppDrawFit',
+    deps: [],
+    code: String.raw`function fitLog = xppDrawFit(ax, xs, ys, equation, label, color, outside, fitLog)
+%XPPDRAWFIT Draws a fitted curve from xppPolyFit and adds its equation to fitLog (or why there is no fit);
+%   outside is the number of samples left out because they lie off the axes.
+if isempty(xs)
+    fitLog{end + 1} = sprintf('%s: not enough distinct x values for the fit', label);
+    return
+end
+plot(ax, xs, ys, '-', 'Color', color, 'LineWidth', 1.5, 'DisplayName', [label ' fit: ' equation]);
+note = '';
+if outside > 0
+    note = sprintf(' [%d samples off the axes left out, as in the app]', outside);
+end
+fitLog{end + 1} = [label ': ' equation note];
+end`,
+  },
+  {
     name: 'xppFitOscillation',
-    deps: ['xppOscillationSse', 'xppCrossings', 'xppLobePeaks'],
+    deps: ['xppOscillationSse', 'xppCrossings', 'xppLobePeaks', 'xppLogDecZeta'],
     code: String.raw`function f = xppFitOscillation(t, y, withSlope)
 %XPPFITOSCILLATION Least-squares fit of y = A exp(-sigma tau) cos(wd tau + phi) + c + b tau, tau = t - t0.
 %   t0 is the first sample time; b = 0 unless withSlope. fminsearch searches sigma and wd from several starts
@@ -661,14 +706,10 @@ f.tHalf = log(2) / f.sigma;                              % negative when it grow
 f.r2 = 1 - sse / sum((y - mean(y)) .^ 2);
 f.cycles = span * f.wd / (2 * pi);
 f.fitted = fitted;
-% Cross-check: log decrement of successive same-sign peaks about the fitted equilibrium.
+% Cross-check: log decrement of successive same-sign peaks about the fitted equilibrium, found as the app finds them
+% (turning points at least 0.6 periods apart), so both report the same value.
 e = y - f.c - f.b * tau;
-[~, between] = xppCrossings(tau, e);
-peak = xppLobePeaks(e, between);
-if numel(peak) >= 3
-    delta = median(log(peak(1:end - 2) ./ peak(3:end)));
-    f.zetaLogDec = delta / sqrt(4 * pi ^ 2 + delta ^ 2);
-end
+f.zetaLogDec = xppLogDecZeta(tau, e, f.period, max(1, round(0.6 * f.period / dt)));
 explained = 1 - sse / sum(r .^ 2);                       % share of the detrended variation
 if f.cycles < 0.9
     f.message = sprintf('The window holds only %.2f cycles: select at least one full cycle (2-5 are better).', ...
@@ -712,6 +753,151 @@ peak = zeros(max(0, numel(before) - 1), 1);
 for j = 1:numel(peak)
     peak(j) = max(abs(r(before(j) + 1:before(j + 1))));
 end
+end`,
+  },
+  {
+    name: 'xppLogDecZeta',
+    deps: ['xppPeaks'],
+    code: String.raw`function zeta = xppLogDecZeta(tau, d, period, spacing)
+%XPPLOGDECZETA Damping ratio from the logarithmic decrement, computed as the app computes it: the turning points of d
+%   (xppPeaks, at least spacing samples apart), grouped in runs of successive same-sign peaks (maxima above zero,
+%   minima below) 0.6 to 1.5 periods apart, peaks under 10% of the largest left out. Over all runs,
+%   delta = sum(ln(x0 / xn)) / sum(n), and zeta = delta / sqrt(4 pi^2 + delta^2). NaN without a run of two peaks.
+zeta = NaN;
+if ~(period > 0)
+    return
+end
+d = d(:);
+tau = tau(:);
+[pos, isMax] = xppPeaks(d, spacing);
+if isempty(pos)
+    return
+end
+floorLevel = 0.1 * max(abs(d(pos)));
+sumLog = 0;
+cycles = 0;
+for kind = [true, false]
+    sel = pos(isMax == kind);
+    run = [];
+    for k = 1:numel(sel) + 1                             % one step past the end closes the last run
+        keep = false;
+        if k <= numel(sel)
+            v = d(sel(k));
+            keep = abs(v) >= floorLevel && ((kind && v > 0) || (~kind && v < 0));
+        end
+        if ~isempty(run) && (~keep || tau(sel(k)) - tau(run(end)) < 0.6 * period ...
+                || tau(sel(k)) - tau(run(end)) > 1.5 * period)
+            if numel(run) >= 2
+                sumLog = sumLog + log(abs(d(run(1))) / abs(d(run(end))));
+                cycles = cycles + numel(run) - 1;
+            end
+            run = [];
+        end
+        if keep
+            run(end + 1) = sel(k); %#ok<AGROW>
+        end
+    end
+end
+if cycles > 0
+    delta = sumLog / cycles;
+    zeta = delta / sqrt(4 * pi ^ 2 + delta ^ 2);
+end
+end`,
+  },
+  {
+    name: 'xppPeaks',
+    deps: ['xppTurningPoints', 'xppBaseMinima'],
+    code: String.raw`function [pos, isMax] = xppPeaks(values, spacing)
+%XPPPEAKS Turning points as the app finds them: strict local maxima and minima (a plateau counts once, at its middle
+%   sample; never the end samples) with a prominence of at least 5% of the signal's range, thinned so that no two of
+%   a kind are closer than spacing samples (the more prominent stays). pos ascending; isMax true for maxima.
+values = values(:);
+pos = zeros(0, 1);
+isMax = false(0, 1);
+if numel(values) < 3 || ~(max(values) > min(values))
+    return
+end
+threshold = 0.05 * (max(values) - min(values));
+spacing = max(1, floor(spacing));
+for kind = [true, false]
+    w = values;
+    if ~kind
+        w = -values;
+    end
+    c = xppTurningPoints(w);
+    prom = w(c) - max(xppBaseMinima(c, w, false), xppBaseMinima(c, w, true));
+    ok = prom >= threshold & prom > 0;
+    c = c(ok);
+    prom = prom(ok);
+    keep = true(size(c));
+    if spacing > 1
+        [~, order] = sort(-prom);                        % most prominent first (a stable sort: ties in time order)
+        for j = order(:)'
+            if keep(j)
+                near = abs(c - c(j)) < spacing;
+                near(j) = false;
+                keep(near) = false;
+            end
+        end
+    end
+    pos = [pos; c(keep)]; %#ok<AGROW>
+    isMax = [isMax; repmat(kind, nnz(keep), 1)]; %#ok<AGROW>
+end
+[pos, order] = sort(pos);
+isMax = isMax(order);
+end`,
+  },
+  {
+    name: 'xppTurningPoints',
+    deps: [],
+    code: String.raw`function c = xppTurningPoints(w)
+%XPPTURNINGPOINTS Strict local maxima of w: a plateau counts once, at its middle sample; never the end samples.
+m = numel(w);
+c = zeros(0, 1);
+i = 2;
+while i < m
+    if w(i) > w(i - 1)
+        j = i;
+        while j < m && w(j + 1) == w(i)
+            j = j + 1;
+        end
+        if j < m && w(j + 1) < w(i)
+            c(end + 1, 1) = floor((i + j) / 2); %#ok<AGROW>
+        end
+        i = j + 1;
+    else
+        i = i + 1;
+    end
+end
+end`,
+  },
+  {
+    name: 'xppBaseMinima',
+    deps: [],
+    code: String.raw`function base = xppBaseMinima(c, w, reverse)
+%XPPBASEMINIMA For each sample index in c: the minimum of w between it and the nearest strictly higher sample before
+%   it (after it when reverse), or the signal's edge: the base of a peak there, on that side. One pass with a stack.
+m = numel(w);
+out = zeros(m, 1);
+stackIndex = zeros(m, 1);
+stackMin = zeros(m, 1);
+top = 0;
+for s = 1:m
+    i = s;
+    if reverse
+        i = m + 1 - s;
+    end
+    current = w(i);
+    while top > 0 && w(stackIndex(top)) <= w(i)
+        current = min(current, stackMin(top));
+        top = top - 1;
+    end
+    out(i) = current;
+    top = top + 1;
+    stackIndex(top) = i;
+    stackMin(top) = current;
+end
+base = out(c);
 end`,
   },
   {
@@ -919,16 +1105,29 @@ r(isnan(c)) = NaN;
 end`,
   },
   {
-    name: 'xppDdt',
+    name: 'xppSegmentId',
     deps: [],
-    code: String.raw`function d = xppDdt(x, t)
-%XPPDDT The app's diff(x): d/dt by central differences, one-sided at the ends and next to missing samples;
-%   NaN where x is missing or time does not advance.
+    code: String.raw`function id = xppSegmentId(segStart, n)
+%XPPSEGMENTID The segment number (1, 2, ...) of each of n rows from the segments' first rows (segStart).
+id = zeros(n, 1);
+id(segStart(segStart >= 1 & segStart <= n)) = 1;
+id = max(1, cumsum(id));
+end`,
+  },
+  {
+    name: 'xppDdt',
+    deps: ['xppSegmentId'],
+    code: String.raw`function d = xppDdt(x, t, segStart)
+%XPPDDT The app's diff(x): d/dt by central differences, one-sided at the ends, next to missing samples and at
+%   segment edges (a neighbour across a sim reset or recording gap counts as missing); NaN where x is missing or
+%   time does not advance.
 x = x + zeros(size(t));
 n = numel(x);
 ok = isfinite(x) & isfinite(t);
-prev = [false; ok(1:end - 1)];
-next = [ok(2:end); false];
+id = xppSegmentId(segStart, n);
+same = id(1:end - 1) == id(2:end);                       % rows k and k + 1 are in one segment
+prev = [false; ok(1:end - 1) & same];
+next = [ok(2:end) & same; false];
 xp = [NaN; x(1:end - 1)];
 xn = [x(2:end); NaN];
 tp = [NaN; t(1:end - 1)];
@@ -950,12 +1149,14 @@ end`,
   },
   {
     name: 'xppInteg',
-    deps: [],
-    code: String.raw`function s = xppInteg(x, t)
+    deps: ['xppSegmentId'],
+    code: String.raw`function s = xppInteg(x, t, segStart)
 %XPPINTEG The app's integ(x): running trapezoid integral over time from the first finite sample (0 there);
-%   rows without a value stay NaN and gaps are bridged linearly (compensated sum, as in the app).
+%   rows without a value stay NaN, missing samples are bridged linearly and nothing is added across a sim reset
+%   or recording gap (compensated sum, as in the app).
 x = x + zeros(size(t));
 s = NaN(numel(x), 1);
+id = xppSegmentId(segStart, numel(x));
 total = 0;
 compensation = 0;
 last = 0;
@@ -963,7 +1164,7 @@ for i = 1:numel(x)
     if ~isfinite(x(i)) || ~isfinite(t(i))
         continue
     end
-    if last > 0 && t(i) - t(last) > 0
+    if last > 0 && id(last) == id(i) && t(i) - t(last) > 0
         increment = 0.5 * (x(i) + x(last)) * (t(i) - t(last));
         updated = total + increment;
         if abs(total) >= abs(increment)
@@ -980,13 +1181,15 @@ end`,
   },
   {
     name: 'xppSmooth',
-    deps: [],
-    code: String.raw`function s = xppSmooth(x, t, seconds)
-%XPPSMOOTH The app's smooth(x, seconds): centred moving average over |t_j - t_i| <= seconds/2; rows without a
-%   value stay NaN and missing samples inside the window are ignored.
+    deps: ['xppSegmentId'],
+    code: String.raw`function s = xppSmooth(x, t, seconds, segStart)
+%XPPSMOOTH The app's smooth(x, seconds): centred moving average over |t_j - t_i| <= seconds/2 within row i's
+%   segment (never across a sim reset or recording gap); rows without a value stay NaN and missing samples inside
+%   the window are ignored.
 x = x + zeros(size(t));
 n = numel(x);
 s = NaN(n, 1);
+id = xppSegmentId(segStart, n);
 half = seconds / 2;
 reference = x(find(isfinite(x), 1));
 if isempty(reference)
@@ -1000,14 +1203,14 @@ for i = 1:n
     if ~isfinite(t(i))
         continue
     end
-    while hi <= n && (~isfinite(t(hi)) || t(hi) <= t(i) + half)
+    while hi <= n && id(hi) == id(i) && (~isfinite(t(hi)) || t(hi) <= t(i) + half)
         if isfinite(x(hi)) && isfinite(t(hi))
             total = total + (x(hi) - reference);
             count = count + 1;
         end
         hi = hi + 1;
     end
-    while lo < hi && (~isfinite(t(lo)) || t(lo) < t(i) - half)
+    while lo < hi && (id(lo) ~= id(i) || ~isfinite(t(lo)) || t(lo) < t(i) - half)
         if isfinite(x(lo)) && isfinite(t(lo))
             total = total - (x(lo) - reference);
             count = count - 1;
@@ -1022,13 +1225,16 @@ end`,
   },
   {
     name: 'xppLag',
-    deps: [],
-    code: String.raw`function y = xppLag(x, rows, n)
-%XPPLAG The app's lag(x, rows): y(i) = x(i - rows), NaN where that row is outside the log.
+    deps: ['xppSegmentId'],
+    code: String.raw`function y = xppLag(x, rows, n, segStart)
+%XPPLAG The app's lag(x, rows): y(i) = x(i - rows), NaN where that row is outside the log or across a sim reset
+%   or recording gap (another segment).
 x = x + zeros(n, 1);
 k = round(rows);
 y = NaN(n, 1);
+id = xppSegmentId(segStart, n);
 i = max(1, k + 1):min(n, n + k);
+i = i(id(i) == id(i - k));
 y(i) = x(i - k);
 end`,
   },

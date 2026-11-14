@@ -159,6 +159,34 @@ describe('baseOption', () => {
       .axisPointer
     expect(pointer.label.formatter({ value: 0.1 + 0.2 })).toBe('0.3')
   })
+
+  it('draws the crosshair on its own layer without highlighting samples, so hovering repaints only that layer', () => {
+    const pointer = (baseOption(screen) as { axisPointer: Record<string, unknown> }).axisPointer
+    expect(pointer).toMatchObject({ zlevel: 1, triggerEmphasis: false })
+    // ECharts reads an axis tooltip's pointer zlevel and triggerEmphasis from this global axisPointer component.
+    const chart = echarts.init(null, null, { renderer: 'svg', ssr: true, width: 200, height: 100 })
+    chart.setOption(
+      mergeOptions(baseOption(screen), {
+        tooltip: { trigger: 'axis' },
+        xAxis: { type: 'value' },
+        yAxis: { type: 'value' },
+        series: [
+          {
+            type: 'line',
+            data: [
+              [0, 1],
+              [1, 2],
+            ],
+          },
+        ],
+      }),
+    )
+    type Model = { getModel(): { getComponent(type: string): { get(key: string): unknown } } }
+    const global = (chart as unknown as Model).getModel().getComponent('axisPointer')
+    expect(global.get('zlevel')).toBe(1)
+    expect(global.get('triggerEmphasis')).toBe(false)
+    chart.dispose()
+  })
 })
 
 describe('valueAxis', () => {

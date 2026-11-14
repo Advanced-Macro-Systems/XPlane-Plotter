@@ -4,7 +4,7 @@
 // charts/options/modes.ts.
 
 import { AlertIcon, CopyIcon, InfoIcon, LightBulbIcon, PulseIcon, ZoomInIcon } from '@primer/octicons-react'
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { EChart } from '../../charts/EChart'
 import { exportOptionImage } from '../../charts/exportChart'
 import { formatNumber } from '../../charts/format'
@@ -13,13 +13,14 @@ import { readChartTheme, useChartTheme } from '../../charts/theme'
 import { ChannelPicker } from '../../components/ChannelPicker'
 import { ExportMenu, type ExportItem } from '../../components/ExportMenu'
 import { Segmented } from '../../components/Segmented'
-import { rangeText, useTimeAxis } from '../../components/hooks'
+import { ViewSidebar } from '../../components/ViewSidebar'
+import { rangeText, useSettled, useTimeAxis } from '../../components/hooks'
 import { channelTitle, describeChannel } from '../../core/channels'
 import { channelById } from '../../core/dataset'
 import { copyText, downloadText, safeFilename } from '../../core/export/download'
-import { matlabScript, matlabScriptName } from '../../core/export/matlab'
 import { formatDuration } from '../../core/time'
 import type { Channel, Dataset, TestPoint, Workspace } from '../../core/types'
+import { exportMatlab } from '../../layout/fileActions'
 import { setModes, setTab, toast, useActiveDataset, useApp, useWorkspace } from '../../store/app'
 import {
   MODE_PRESETS,
@@ -28,16 +29,18 @@ import {
   fitCsv,
   fittedCurve,
   interpretFit,
+  modesForPoint,
   oscillationEnvelope,
   peakRows,
+  presetActive,
   presetChannel,
   presetPoint,
   resolveModeRows,
   resultTiles,
   resultsTsv,
-  runModeFit,
   sourceKind,
   sourcePointId,
+  thinPlotInput,
   windowSeries,
   type ModeFit,
   type ModePreset,
@@ -45,6 +48,7 @@ import {
   type SourceKind,
   type WindowSeries,
 } from './modesModel'
+import { useModeFit } from './useModeFit'
 import './modes.css'
 
 export function ModesView() {
@@ -55,17 +59,6 @@ export function ModesView() {
       {ds && ws && <ModesWorkspace ds={ds} ws={ws} />}
     </div>
   )
-}
-
-/** A value that follows `value` once it has stopped changing for `ms` (the first value is taken at once). */
-function useSettled<T>(value: T, ms: number): T {
-  const [settled, setSettled] = useState(value)
-  useEffect(() => {
-    if (Object.is(settled, value)) return
-    const timer = window.setTimeout(() => setSettled(value), ms)
-    return () => window.clearTimeout(timer)
-  }, [value, settled, ms])
-  return settled
 }
 
 interface FitRequest {
@@ -104,13 +97,15 @@ function ModesWorkspace({ ds, ws }: { ds: Dataset; ws: Workspace }) {
     [series, modes.model, modes.detrend],
   )
   const settled = useSettled(request, FIT_DEBOUNCE_MS)
-  const latest = useMemo(() => (settled ? runModeFit(settled.series, settled.model, settled.detrend) : null), [settled])
-  const fitting = request !== null && settled !== request
-  // The settled fit belongs on screen only if it was made for this very window.
-  const result = latest && settled && series && settled.series === series ? latest : null
+  // The fit runs in a background worker: a whole long file never freezes the page.
+  const done = useModeFit(settled)
+  const latest = done?.result ?? null
+  const fitting = request !== null && done?.request !== request
+  // The latest fit belongs on screen only if it was made for this very window.
+  const result = latest && done && series && done.request.series === series ? latest : null
 
   const plot = useMemo(
-    () => (series && channel ? modesPlotData(plotInput(series, result, channel)) : null),
+    () => (series && channel ? modesPlotData(thinPlotInput(plotInput(series, result, channel))) : null),
     [series, result, channel],
   )
   const option = useMemo(
@@ -128,7 +123,7 @@ function ModesWorkspace({ ds, ws }: { ds: Dataset; ws: Workspace }) {
         resolved={resolved}
         rowsText={resolved.rows && axis ? rangeText(ds, axis, resolved.rows) : null}
       />
-      <main className="view-main md-main">
+      <div className="view-main md-main">
         {!resolved.rows ? (
           <NoRows ds={ds} ws={ws} problem={resolved.problem} onWholeFile={() => setWholeFile(true)} />
         ) : !channel || !series ? (
@@ -206,7 +201,7 @@ function ModesWorkspace({ ds, ws }: { ds: Dataset; ws: Workspace }) {
             )}
           </div>
         )}
-      </main>
+      </div>
     </div>
   )
 }
@@ -267,17 +262,17 @@ function ModesSidebar({
       return
     }
     const target = ws.points.find((p) => p.id === (pointId ?? lastPoint)) ?? ws.points.at(-1)
-    if (target) setModes({ source: `point:${target.id}` })
+    if (target) setModes(modesForPoint(ds, target))
   }
 
   return (
-    <aside className="view-sidebar md-sidebar" aria-label="Mode analysis settings">
+    <ViewSidebar className="md-sidebar" label="Mode analysis settings">
       <section className="view-sidebar-section">
         <h3 className="eyebrow">Quick pick</h3>
         <div className="md-presets">
           {MODE_PRESETS.map((preset) => {
             const id = presetChannel(ds, preset)
-            const active = !!id && id === modes.channelId && preset.model === modes.model
+            const active = presetActive(ds, preset, modes, ws.points)
             return (
               <button
                 key={preset.id}
@@ -333,7 +328,8 @@ function ModesSidebar({
             value={pointId ?? ''}
             onChange={(e) => {
               setLastPoint(e.target.value)
-              setModes({ source: `point:${e.target.value}` })
+              const point = ws.points.find((p) => p.id === e.target.value)
+              setModes(point ? modesForPoint(ds, point) : { source: `point:${e.target.value}` })
             }}
           >
             {!resolved.point && <option value={pointId ?? ''}>Choose a test point</option>}
@@ -403,7 +399,7 @@ function ModesSidebar({
           <li>Save the window as a test point in Time history to come back to it.</li>
         </ul>
       </div>
-    </aside>
+    </ViewSidebar>
   )
 }
 
@@ -447,7 +443,7 @@ function NoRows({
 }) {
   const lastPoint = ws.points.at(-1)
   const usePoint = lastPoint ? (
-    <button type="button" className="btn btn-outline" onClick={() => setModes({ source: `point:${lastPoint.id}` })}>
+    <button type="button" className="btn btn-outline" onClick={() => setModes(modesForPoint(ds, lastPoint))}>
       Use a test point
     </button>
   ) : null
@@ -520,7 +516,6 @@ function ModesHeading({
   plotInput: ModesPlotInput | null
   showResiduals: boolean
 }) {
-  const view = useApp((s) => s.view)
   const rows = series.rows[1] - series.rows[0]
   const stem = safeFilename(
     `${ds.name.replace(/\.[A-Za-z0-9]{1,5}$/, '')}_${windowName}_${channel.meta.short}`,
@@ -581,22 +576,9 @@ function ModesHeading({
     },
     {
       section: 'MATLAB',
-      label: 'MATLAB script',
+      label: 'MATLAB script: this fit only',
       hint: 'Re-runs this fit on the original log',
-      onSelect: () => {
-        try {
-          const text = matlabScript({
-            ds,
-            ws,
-            include: { points: false, xy: false, time: false, modes: true },
-            view,
-            modeRows: series.rows,
-          })
-          downloadText(matlabScriptName(ds.name), text, 'text/plain')
-        } catch (error) {
-          toast(`Could not write the MATLAB script: ${error instanceof Error ? error.message : String(error)}`, 'error')
-        }
-      },
+      onSelect: () => void exportMatlab({ part: 'modes', modeRows: series.rows }),
     },
   ]
 
@@ -629,7 +611,7 @@ function Legend({ channel, result, residuals }: { channel: Channel; result: Mode
   const fitted = result ? fittedCurve(result) : null
   const ok = result?.fit.ok ?? false
   return (
-    <div className="md-legend" aria-label="Legend">
+    <div className="md-legend" role="group" aria-label="Legend">
       <span className="series-chip">
         <span className="line-key" style={keyStyle('var(--series-1)')} />
         <span className="series-chip-name">{channel.meta.short}</span>

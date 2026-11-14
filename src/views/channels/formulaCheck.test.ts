@@ -74,6 +74,27 @@ describe('checkFormula', () => {
     expect(checkFormula(ds, defs.slice(0, 1), 'a / 2', base).status).toBe('ok')
     expect(checkFormula(ds, [], 'a / 2').status).toBe('error')
   })
+
+  it('previews time functions inside each time segment, exactly as the saved channel', () => {
+    // A sim reset after row 2: the jump there is not a rate and the previous row is in another run.
+    const segmented = {
+      ...ds,
+      segments: [
+        { start: 0, end: 2, reason: 'start' as const },
+        { start: 2, end: 4, reason: 'reset' as const },
+      ],
+    }
+    const expression = 'diff(Vind_kias) + lag(Vind_kias, 1)'
+    const check = checkFormula(segmented, [], expression)
+    if (check.status !== 'ok') throw new Error(`expected ok, got ${check.status}`)
+    const saved = withDerived(segmented, [def('p', expression)]).dataset.channels.at(-1)!
+    expect(Array.from(check.values)).toEqual(Array.from(saved.values))
+    expect(Number.isNaN(check.values[2])).toBe(true)
+    // One continuous run gives other values (so the segments really were used).
+    const continuous = checkFormula(ds, [], expression)
+    if (continuous.status !== 'ok') throw new Error('expected ok')
+    expect(Array.from(check.values)).not.toEqual(Array.from(continuous.values))
+  })
 })
 
 describe('formulasBefore', () => {

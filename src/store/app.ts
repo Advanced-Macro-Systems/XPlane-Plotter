@@ -6,6 +6,8 @@ import { create } from 'zustand'
 import { withDerived } from '../core/analysis/derived'
 import { buildDataset } from '../core/dataset'
 import { DEMO_FILE_NAME, generateDemoFlight } from '../core/demo/generateDemo'
+import { downloadText } from '../core/export/download'
+import { serializeSession, sessionFileName } from '../core/export/session'
 import { ParseError, parseFile, parseText, type RawTable } from '../core/parse'
 import type {
   Dataset,
@@ -20,7 +22,15 @@ import type {
   Workspace,
   XYConfig,
 } from '../core/types'
-import { MAX_SERIES, defaultWorkspace, newId, nextGroupSlot, sanitizeWorkspace } from './defaults'
+import {
+  MAX_GROUPS,
+  MAX_SERIES,
+  defaultWorkspace,
+  newId,
+  nextGroupSlot,
+  sanitizeDerived,
+  sanitizeWorkspace,
+} from './defaults'
 import { demoWorkspace } from './demoWorkspace'
 
 export interface LoadingState {
@@ -67,6 +77,11 @@ export interface AppState {
   /** Filter for the Channels tab to start with, set by openChannels and taken (cleared) by the Channels view */
   channelsRequest: ChannelsRequest | null
   toasts: Toast[]
+  /**
+   * The last try to save a workspace in this browser failed (storage full or blocked): test points last only until
+   * the page closes, unless saved as a session file. Cleared by the next save that works.
+   */
+  saveFailed: boolean
 }
 
 export const useApp = create<AppState>(() => ({
@@ -79,6 +94,7 @@ export const useApp = create<AppState>(() => ({
   selection: null,
   channelsRequest: null,
   toasts: [],
+  saveFailed: false,
 }))
 
 const set = useApp.setState
@@ -108,21 +124,97 @@ export function useWorkspace(): Workspace | null {
 
 let toastCounter = 0
 
+/** At most this many toasts show at once; a new one pushes out the oldest. */
+const MAX_TOASTS = 4
+/** A held toast that is let go again stays at least this long (ms), so it does not vanish under the pointer. */
+const TOAST_RESUME_MS = 4000
+
+/**
+ * How long a toast shows (ms). One with an action (Undo, Start fresh) stays 20 s: long enough to reach it with the
+ * keyboard (WCAG 2.2.1); its time also stops while the pointer is over it or focus is in it (holdToast).
+ */
+export function toastLifetime(kind: Toast['kind'], hasAction: boolean): number {
+  return hasAction ? 20000 : kind === 'error' ? 9000 : 4500
+}
+
+interface ToastTimer {
+  handle: ReturnType<typeof setTimeout> | null
+  /** When it closes (ms since the epoch) while running */
+  due: number
+  /** Time left when it was held */
+  left: number
+  /** Why it is held: the pointer is over it, focus is in it */
+  holds: Set<'pointer' | 'focus'>
+}
+
+const toastTimers = new Map<number, ToastTimer>()
+
+function runToastTimer(id: number, timer: ToastTimer, ms: number): void {
+  timer.due = Date.now() + ms
+  timer.handle = setTimeout(() => dismissToast(id), ms)
+}
+
 export function toast(message: string, kind: Toast['kind'] = 'info', action?: Toast['action']): void {
   toastCounter += 1
   const id = toastCounter
-  set((s) => ({ toasts: [...s.toasts.slice(-3), { id, kind, message, action }] }))
-  setTimeout(() => dismissToast(id), kind === 'error' ? 9000 : action ? 8000 : 4500)
+  const kept = get().toasts.slice(-(MAX_TOASTS - 1))
+  for (const old of get().toasts) if (!kept.includes(old)) forgetToastTimer(old.id)
+  set({ toasts: [...kept, { id, kind, message, action }] })
+  const timer: ToastTimer = { handle: null, due: 0, left: 0, holds: new Set() }
+  toastTimers.set(id, timer)
+  runToastTimer(id, timer, toastLifetime(kind, action !== undefined))
+}
+
+function forgetToastTimer(id: number): void {
+  const timer = toastTimers.get(id)
+  if (timer?.handle) clearTimeout(timer.handle)
+  toastTimers.delete(id)
 }
 
 export function dismissToast(id: number): void {
-  set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
+  forgetToastTimer(id)
+  if (get().toasts.some((t) => t.id === id)) set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
+}
+
+/**
+ * Stops a toast's time while the pointer is over it or focus is in it (`held` true), and lets it run again once
+ * neither is (with at least a few seconds left), so nobody loses an Undo they are reaching for.
+ */
+export function holdToast(id: number, reason: 'pointer' | 'focus', held: boolean): void {
+  const timer = toastTimers.get(id)
+  if (!timer) return
+  if (held) timer.holds.add(reason)
+  else timer.holds.delete(reason)
+  if (timer.holds.size > 0) {
+    if (timer.handle === null) return
+    clearTimeout(timer.handle)
+    timer.handle = null
+    timer.left = Math.max(0, timer.due - Date.now())
+  } else if (timer.handle === null) {
+    runToastTimer(id, timer, Math.max(timer.left, TOAST_RESUME_MS))
+  }
+}
+
+/** Runs a toast's action (its button, or Ctrl/Cmd+Z for an Undo) and closes the toast. */
+export function runToastAction(id: number): void {
+  const item = get().toasts.find((t) => t.id === id)
+  dismissToast(id)
+  item?.action?.run()
+}
+
+/** The newest toast that offers an Undo, or null: what Ctrl/Cmd+Z undoes. */
+export function latestUndoToast(): Toast | null {
+  return get().toasts.findLast((t) => t.action?.label.trim().toLowerCase() === 'undo') ?? null
 }
 
 // ------------------------------------------------------------------ persistence (per file signature)
 
 const WS_PREFIX = 'xpp:ws:'
 const RECENT_KEY = 'xpp:recent'
+/** Files listed as recent on the start page. */
+const MAX_RECENT = 8
+/** Longest file name kept from the stored recent list (a file name is at most 255 characters). */
+const MAX_RECENT_NAME = 260
 
 function readSaved(signature: string): unknown {
   try {
@@ -133,28 +225,106 @@ function readSaved(signature: string): unknown {
   }
 }
 
-function writeSaved(ds: Dataset, ws: Workspace): void {
+/** Saves one workspace and puts its file first in the recent list; false when the browser refuses (full, blocked). */
+function trySave(ds: Dataset, text: string, points: number): boolean {
   try {
-    localStorage.setItem(WS_PREFIX + ds.signature, JSON.stringify(ws))
+    localStorage.setItem(WS_PREFIX + ds.signature, text)
     const recent = readRecent().filter((r) => r.signature !== ds.signature)
-    recent.unshift({
-      name: ds.name,
-      signature: ds.signature,
-      rows: ds.rowCount,
-      points: ws.points.length,
-      savedAt: new Date().toISOString(),
-    })
-    localStorage.setItem(RECENT_KEY, JSON.stringify(recent.slice(0, 8)))
+    const savedAt = new Date().toISOString()
+    recent.unshift({ name: ds.name, signature: ds.signature, rows: ds.rowCount, points, savedAt })
+    localStorage.setItem(RECENT_KEY, JSON.stringify(recent.slice(0, MAX_RECENT)))
+    return true
   } catch {
-    // Storage full or unavailable: the workspace lasts until the tab is closed.
+    return false
   }
 }
 
-/** Files opened before on this device (newest first) — their workspaces come back when the same file is opened. */
+/**
+ * Frees room: removes the saved workspaces of files that are no longer in the recent list (nothing on the start page
+ * leads to them any more), except `keep`'s. Returns how many were removed.
+ */
+function pruneSaved(keep: string): number {
+  try {
+    const listed = new Set(readRecent().map((r) => r.signature))
+    listed.add(keep)
+    const stale: string[] = []
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i)
+      if (key?.startsWith(WS_PREFIX) && !listed.has(key.slice(WS_PREFIX.length))) stale.push(key)
+    }
+    for (const key of stale) localStorage.removeItem(key)
+    return stale.length
+  } catch {
+    return 0
+  }
+}
+
+/** The save-failure warning shows once per page load (the lasting sign is `saveFailed`). */
+let saveFailureToastShown = false
+
+function writeSaved(datasetId: string, ds: Dataset, ws: Workspace): void {
+  const text = JSON.stringify(ws)
+  // Storage full: make room by dropping saved workspaces nothing leads to any more, then try once more.
+  const points = ws.points.length
+  const saved = trySave(ds, text, points) || (pruneSaved(ds.signature) > 0 && trySave(ds, text, points))
+  if (saved) {
+    if (get().saveFailed) set({ saveFailed: false })
+    return
+  }
+  // Full or blocked (private window, site data blocked): the workspace lasts only until the tab closes. Say so.
+  if (!get().saveFailed) set({ saveFailed: true })
+  if (saveFailureToastShown) return
+  saveFailureToastShown = true
+  toast(
+    'This browser could not save your workspace (storage full or blocked): test points will be lost when the page closes. Save a session file to keep them.',
+    'error',
+    { label: 'Save session', run: () => downloadSession(datasetId) },
+  )
+}
+
+/** Downloads a dataset's workspace as a session file (the active one when that dataset is closed). */
+function downloadSession(datasetId: string): void {
+  const { datasets, workspaces, activeId } = get()
+  const id = datasets.some((d) => d.id === datasetId) ? datasetId : activeId
+  const ds = datasets.find((d) => d.id === id)
+  const ws = id ? workspaces[id] : undefined
+  if (ds && ws) downloadText(sessionFileName(ds.name), serializeSession(ds, ws), 'application/json')
+}
+
+/** One stored recent-file entry, or null when it is not one: anything on this origin can write to localStorage. */
+function recentEntry(value: unknown): RecentFile | null {
+  if (typeof value !== 'object' || value === null) return null
+  const r = value as Record<string, unknown>
+  if (typeof r.signature !== 'string' || !r.signature || typeof r.name !== 'string') return null
+  const count = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : Number.NaN)
+  return {
+    name: r.name.slice(0, MAX_RECENT_NAME),
+    signature: r.signature,
+    rows: count(r.rows),
+    points: count(r.points),
+    savedAt: typeof r.savedAt === 'string' ? r.savedAt : '',
+  }
+}
+
+/**
+ * Files opened before on this device (newest first) — their workspaces come back when the same file is opened.
+ * Entries that are not well formed are left out (and a file listed twice shows once), so a damaged list can never
+ * break the start page.
+ */
 export function readRecent(): RecentFile[] {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]')
-    return Array.isArray(parsed) ? (parsed as RecentFile[]).filter((r) => r && typeof r.signature === 'string') : []
+    if (!Array.isArray(parsed)) return []
+    const seen = new Set<string>()
+    const recent: RecentFile[] = []
+    for (const item of parsed) {
+      const entry = recentEntry(item)
+      if (!entry || seen.has(entry.signature)) continue
+      seen.add(entry.signature)
+      recent.push(entry)
+      if (recent.length === MAX_RECENT) break
+    }
+    return recent
   } catch {
     return []
   }
@@ -179,7 +349,7 @@ useApp.subscribe((state, previous) => {
     clearTimeout(saveTimers.get(id))
     saveTimers.set(
       id,
-      setTimeout(() => writeSaved(ds, ws), 400),
+      setTimeout(() => writeSaved(id, ds, ws), 400),
     )
   }
 })
@@ -188,6 +358,12 @@ useApp.subscribe((state, previous) => {
 
 let loadAbort: AbortController | null = null
 let datasetCounter = 0
+
+/** A stored workspace this version can restore: an object with `version: 1` (the rest is sanitised). */
+function isWorkspaceV1(value: unknown): value is Record<string, unknown> & { version: 1 } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  return (value as { version?: unknown }).version === 1
+}
 
 function addDataset(
   raw: RawTable,
@@ -201,45 +377,62 @@ function addDataset(
   const id = `ds${datasetCounter}`
   const saved = opts.restore ? readSaved(base.signature) : null
   let dataset: Dataset = { ...base, id }
-  let workspace: Workspace
+  let workspace: Workspace | null = null
   let restoredPoints = -1
-  if (saved && typeof saved === 'object') {
-    const defs = Array.isArray((saved as Workspace).derived) ? (saved as Workspace).derived : []
-    const derived = withDerived(dataset, defs)
-    dataset = derived.dataset
-    workspace = sanitizeWorkspace(saved, dataset)
-    restoredPoints = workspace.points.length
-  } else {
-    workspace = opts.initial ? sanitizeWorkspace(opts.initial(dataset), dataset) : defaultWorkspace(dataset)
+  let unreadable = false
+  if (saved !== null) {
+    // Stored data is untrusted (an older or newer app, hand edits, another page on this origin): restore only a
+    // well-formed version-1 workspace, formulas checked before they are evaluated; anything else opens the file fresh.
+    try {
+      if (!isWorkspaceV1(saved)) throw new Error('not a version 1 workspace')
+      dataset = withDerived(dataset, sanitizeDerived(saved.derived)).dataset
+      workspace = sanitizeWorkspace(saved, dataset)
+      restoredPoints = workspace.points.length
+    } catch {
+      dataset = { ...base, id }
+      workspace = null
+      unreadable = true
+    }
   }
+  workspace ??= opts.initial ? sanitizeWorkspace(opts.initial(dataset), dataset) : defaultWorkspace(dataset)
+  const opened = workspace
   set((s) => ({
     datasets: [...s.datasets, dataset],
     activeId: id,
-    workspaces: { ...s.workspaces, [id]: workspace },
+    workspaces: { ...s.workspaces, [id]: opened },
     view: null,
     selection: null,
     tab: s.datasets.length === 0 ? 'overview' : s.tab,
   }))
+  if (unreadable) toast(`The saved workspace for ${name} could not be read and was ignored.`, 'info')
   if (restoredPoints >= 0) {
-    const fresh = defaultWorkspace(dataset)
     toast(
       restoredPoints > 0
         ? `Restored your workspace for ${name}: ${restoredPoints} test point${restoredPoints === 1 ? '' : 's'}.`
         : `Restored your plot setup for ${name}.`,
       'success',
-      {
-        label: 'Start fresh',
-        run: () => {
-          const current = get().datasets.find((d) => d.id === id)
-          if (!current) return
-          const plain = withDerived(current, []).dataset
-          set((s) => ({
-            datasets: s.datasets.map((d) => (d.id === id ? plain : d)),
-            workspaces: { ...s.workspaces, [id]: { ...fresh, panels: fresh.panels } },
-          }))
-        },
-      },
+      startFreshAction(id, defaultWorkspace(dataset)),
     )
+  }
+}
+
+/**
+ * The restore toast's "Start fresh": the file's default workspace, without formulas. Built out here so the toast holds
+ * only the id and that workspace: a closure made inside addDataset would keep the whole Dataset alive (a function's
+ * closures share one context) for as long as anything holds the toast, also after the file is closed.
+ */
+function startFreshAction(id: string, fresh: Workspace): NonNullable<Toast['action']> {
+  return {
+    label: 'Start fresh',
+    run: () => {
+      const current = get().datasets.find((d) => d.id === id)
+      if (!current) return
+      const plain = withDerived(current, []).dataset
+      set((s) => ({
+        datasets: s.datasets.map((d) => (d.id === id ? plain : d)),
+        workspaces: { ...s.workspaces, [id]: fresh },
+      }))
+    },
   }
 }
 
@@ -267,7 +460,9 @@ export async function openFiles(files: FileList | File[]): Promise<void> {
       // Let the progress bar paint before the (synchronous) build.
       await new Promise((resolve) => setTimeout(resolve, 0))
       addDataset(raw, file.name, file.size, { restore: true })
-      for (const warning of get().datasets.at(-1)?.warnings.slice(0, 1) ?? []) toast(warning, 'info')
+      // The Overview leads with the file's data-quality notes; on another tab, say the first one in a toast.
+      const warning = get().datasets.at(-1)?.warnings[0]
+      if (warning && get().tab !== 'overview') toast(warning, 'info', { label: 'Show', run: () => setTab('overview') })
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') continue
       const message =
@@ -435,7 +630,17 @@ export function removePoint(id: string): void {
   }))
 }
 
+/**
+ * Adds a test-point group with the next free colour slot and returns its id. A file has at most MAX_GROUPS groups (one
+ * slot each: a 9th would repeat a colour). At the limit nothing is added, a toast says so, and the last group's id is
+ * returned, so a point saved "in a new group" still lands in a group that exists. Views offer no new group there.
+ */
 export function addGroup(name: string): string {
+  const current = getWorkspace()
+  if (current && current.groups.length >= MAX_GROUPS) {
+    toast(`A file can have at most ${MAX_GROUPS} test-point groups, one colour each: no group was added.`, 'info')
+    return current.groups[current.groups.length - 1].id
+  }
   const id = newId('g')
   updateWorkspace((ws) => ({
     ...ws,
@@ -541,8 +746,7 @@ export function importWorkspace(input: Workspace): void {
   const ds = getActiveDataset()
   const { activeId } = get()
   if (!ds || !activeId) return
-  const defs = Array.isArray(input.derived) ? input.derived : []
-  const { dataset } = withDerived(ds, defs)
+  const { dataset } = withDerived(ds, sanitizeDerived(input.derived))
   const workspace = sanitizeWorkspace(input, dataset)
   set((s) => ({
     datasets: s.datasets.map((d) => (d.id === activeId ? dataset : d)),

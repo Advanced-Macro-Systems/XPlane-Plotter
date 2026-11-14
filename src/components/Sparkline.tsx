@@ -83,7 +83,9 @@ function paint(
   // Resizing the backing store also clears it.
   canvas.width = Math.max(1, Math.round(width * dpr))
   canvas.height = Math.max(1, Math.round(height * dpr))
-  const ctx = canvas.getContext('2d')
+  // A CPU-backed canvas: it is painted into the table's own layer instead of becoming a GPU layer of its own, so a table
+  // with hundreds of sparklines scrolls without re-layering them all every frame.
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
   if (!ctx) return
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   const series = sparkSeries(x, y, buckets)
