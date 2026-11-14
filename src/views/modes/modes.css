@@ -1,0 +1,386 @@
+/* Dynamic modes view (views/modes/ModesView.tsx). Class prefix: md- */
+
+/* ---------------------------------------------------------------- sidebar */
+
+.md-sidebar {
+  gap: 20px;
+}
+.md-sidebar .eyebrow {
+  margin: 0;
+}
+
+.md-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+  gap: 6px;
+}
+.md-preset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+.md-preset:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+.md-preset[aria-pressed='true'] {
+  border-color: transparent;
+  background: var(--info-soft);
+  color: var(--info-text);
+  font-weight: 600;
+}
+.md-preset:disabled {
+  border-style: dashed;
+  color: var(--text-subtle);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* The channel picker spans the sidebar. */
+.md-channel .dropdown {
+  display: flex;
+  width: 100%;
+}
+
+.md-sidebar .segmented {
+  align-self: flex-start;
+  max-width: 100%;
+}
+.md-rows {
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.md-help {
+  padding: 12px 14px 12px;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 19px;
+}
+.md-help-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-weight: 600;
+}
+.md-help-title svg {
+  color: var(--warning);
+}
+.md-help ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+/* ---------------------------------------------------------------- main column */
+
+.md-main {
+  container-type: inline-size;
+}
+.md-body {
+  max-width: 1480px;
+}
+
+.md-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 16px;
+}
+.md-heading-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.md-heading-text .eyebrow {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.md-heading h2 {
+  overflow: hidden;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  line-height: 28px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.md-heading-sub {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.md-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Chart and results side by side when there is room, stacked otherwise. */
+.md-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@container (min-width: 1000px) {
+  .md-layout {
+    grid-template-columns: minmax(0, 1fr) 340px;
+  }
+}
+
+.md-chart-card {
+  overflow: hidden;
+}
+.md-chart-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.md-fitting {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-subtle);
+  font-size: 12px;
+  font-weight: 500;
+}
+.md-fitting .spinner {
+  width: 12px;
+  height: 12px;
+}
+.md-residual-toggle {
+  margin-right: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.md-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 14px 0;
+}
+.md-legend .series-chip {
+  padding-right: 8px;
+}
+.md-key-dashed {
+  background: repeating-linear-gradient(90deg, var(--key) 0 4px, transparent 4px 7px);
+}
+.md-key-thin {
+  height: 2px;
+}
+.md-key-peak {
+  width: 0;
+  height: 0;
+  flex: none;
+  border-right: 5px solid transparent;
+  border-bottom: 9px solid var(--series-1);
+  border-left: 5px solid transparent;
+}
+.md-plot {
+  width: 100%;
+}
+
+/* ---------------------------------------------------------------- results */
+
+.md-results {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.md-results-wait {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 4px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.md-reading {
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border-muted);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+.md-reading-good {
+  background: var(--success-soft);
+  box-shadow: none;
+  color: var(--success-text);
+}
+.md-reading-danger {
+  background: var(--danger-soft);
+  box-shadow: none;
+  color: var(--danger-text);
+}
+.md-caution {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border-muted);
+}
+
+.md-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+.md-tile {
+  gap: 2px;
+  padding: 12px 14px;
+}
+.md-tile .stat-tile-value {
+  font-size: 22px;
+  line-height: 28px;
+}
+.md-tile-label {
+  overflow: hidden;
+  color: var(--text-subtle);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.md-stale .md-tiles,
+.md-stale .md-reading,
+.md-stale .callout {
+  opacity: 0.5;
+  transition: opacity 120ms ease;
+}
+
+.md-note {
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  font-size: 13px;
+}
+.md-note-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.md-note-text {
+  margin-top: 6px;
+  color: var(--text-muted);
+  line-height: 19px;
+}
+
+/* ---------------------------------------------------------------- peaks table */
+
+.md-peaks summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+.md-peaks summary::-webkit-details-marker {
+  display: none;
+}
+.md-peaks summary::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  margin: 0 4px 0 2px;
+  border-right: 1.5px solid var(--text-subtle);
+  border-bottom: 1.5px solid var(--text-subtle);
+  transform: rotate(-45deg);
+  transition: transform 120ms ease;
+}
+.md-peaks[open] summary::before {
+  transform: rotate(45deg);
+}
+.md-peaks-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.md-peaks-hint {
+  color: var(--text-subtle);
+  font-size: 12px;
+}
+.md-peaks-table {
+  max-height: 360px;
+  margin-top: 6px;
+  background: var(--surface);
+}
+
+/* ---------------------------------------------------------------- empty states */
+
+.md-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 480px;
+  margin: 12vh auto 0;
+  padding: 24px;
+  text-align: center;
+}
+.md-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 14px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  color: var(--text-subtle);
+}
+.md-empty h2 {
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+.md-empty p {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+.md-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+@media (max-width: 560px) {
+  .md-heading h2 {
+    font-size: 18px;
+  }
+  .md-empty {
+    margin-top: 32px;
+  }
+}

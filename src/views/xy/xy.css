@@ -1,0 +1,467 @@
+/* X–Y plot view (views/xy/XYView.tsx). Class prefix: xy- */
+
+/* ---------------------------------------------------------------- sidebar */
+
+.xy-sidebar {
+  gap: 22px;
+}
+.xy-sidebar .eyebrow {
+  margin: 0;
+}
+.xy-sidebar .field {
+  gap: 6px;
+}
+
+/* Pickers and the preset menu span the sidebar. */
+.xy-sidebar .dropdown,
+.xy-picker {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+}
+.xy-picker > .dropdown {
+  flex: 1;
+}
+
+.xy-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 20px;
+}
+.xy-count {
+  color: var(--text-subtle);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.xy-preset-item[aria-current='true'] {
+  background: var(--info-soft);
+}
+.xy-preset-item[aria-current='true'] > span {
+  color: var(--info-text);
+  font-weight: 600;
+}
+
+.xy-ychips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.xy-ychip {
+  min-width: 0;
+}
+
+/* Full-width segmented rows with equal options. */
+.xy-seg .segmented {
+  display: flex;
+  width: 100%;
+}
+.xy-seg .segmented-option {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 6px;
+}
+.xy-seg .segmented-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.xy-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 17px;
+}
+.xy-note > svg {
+  flex: none;
+  margin-top: 2px;
+}
+.xy-callout {
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.xy-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.xy-group-chip {
+  border: 1px solid var(--opt-border, var(--border));
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+.xy-group-chip[aria-pressed='false'] {
+  border-style: dashed;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-subtle);
+}
+.xy-group-chip[aria-pressed='false'] .chip-dot {
+  opacity: 0.45;
+}
+.xy-group-chip:hover {
+  border-color: var(--opt-solid, var(--border-strong));
+}
+.xy-group-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.xy-group-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.xy-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.xy-check-off {
+  color: var(--text-subtle);
+  cursor: not-allowed;
+}
+.xy-dim {
+  opacity: 0.55;
+}
+
+/* ---------------------------------------------------------------- main column */
+
+.xy-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 540px;
+  padding: 16px 20px 0;
+}
+
+.xy-heading {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.xy-heading-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.xy-heading h2 {
+  overflow: hidden;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  line-height: 28px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.xy-heading-sub {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.xy-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* The chart card takes the rest of the visible height. */
+.xy-card {
+  flex: 1;
+  min-height: 360px;
+}
+.xy-card-header {
+  flex: none;
+  align-items: center;
+}
+.xy-legend {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.xy-legend-chip {
+  padding-right: 10px;
+}
+.xy-glyph {
+  flex: none;
+  overflow: visible;
+}
+.xy-tools {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.xy-plot {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.xy-echart {
+  position: absolute;
+  inset: 0;
+}
+.xy-plot.is-boxing .xy-echart,
+.xy-plot.is-boxing .xy-echart * {
+  cursor: crosshair !important;
+}
+
+/* The hovered point: a ring in its colour on a surface halo, moved by transform (no React render). */
+.xy-ring {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  width: var(--ring, 13px);
+  height: var(--ring, 13px);
+  margin: calc(var(--ring, 13px) / -2) 0 0 calc(var(--ring, 13px) / -2);
+  border: 2px solid var(--ring-color, var(--text));
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 2px var(--chart-surface),
+    inset 0 0 0 1px var(--chart-surface);
+  pointer-events: none;
+}
+.xy-ring[hidden],
+.xy-zoom-box[hidden] {
+  display: none;
+}
+
+.xy-zoom-box {
+  position: absolute;
+  z-index: 2;
+  border: 1px solid var(--chart-selection-border);
+  border-radius: 2px;
+  background: var(--chart-selection);
+  pointer-events: none;
+}
+
+.xy-card-footer {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 14px 10px;
+  border-top: 1px solid var(--border-muted);
+}
+.xy-hint {
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 16px;
+}
+.xy-equations {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.xy-equation-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+.xy-equation-text {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.xy-equation-stats {
+  color: var(--text-subtle);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.xy-equation-problem {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.xy-tables-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.xy-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 24px;
+  color: var(--text-muted);
+  text-align: center;
+}
+.xy-empty svg {
+  color: var(--text-subtle);
+}
+.xy-empty h3 {
+  color: var(--text);
+  font-size: 15px;
+}
+.xy-empty p {
+  max-width: 440px;
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- tables */
+
+.xy-tables {
+  padding-top: 16px;
+}
+.xy-table-card {
+  overflow: hidden;
+}
+.xy-table-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  min-width: 0;
+}
+.xy-table-sub {
+  color: var(--text-subtle);
+  font-size: 12px;
+}
+.xy-table-scroll {
+  /* Contains anything absolute inside, so nothing escapes the scroller and widens the view. */
+  position: relative;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.xy-table th,
+.xy-table td {
+  height: 40px;
+}
+.xy-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.xy-table th:first-child,
+.xy-table td:first-child {
+  padding-left: 16px;
+}
+.xy-table th:last-child,
+.xy-table td:last-child {
+  padding-right: 16px;
+}
+.xy-table-empty {
+  padding: 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.xy-series-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;
+}
+.xy-ellipsis {
+  display: inline-block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+.xy-point-name {
+  max-width: 240px;
+}
+.xy-equation {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.xy-problem {
+  color: var(--text-muted);
+}
+.xy-coefficients {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.xy-coefficient {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.xy-coefficient-name {
+  color: var(--text-subtle);
+  font-size: 12px;
+}
+.xy-meansd {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.xy-sd {
+  color: var(--text-subtle);
+}
+
+/* ---------------------------------------------------------------- narrow screens */
+
+@media (max-width: 900px) {
+  .xy-stage {
+    height: auto;
+    min-height: 0;
+  }
+  .xy-card {
+    flex: none;
+    height: min(70dvh, 560px);
+    min-height: 380px;
+  }
+}
+
+@media (max-width: 560px) {
+  .xy-stage {
+    padding: 12px 12px 0;
+  }
+  .xy-tools .btn {
+    padding: 0 8px;
+  }
+}
+
+/* A few absurd samples left off the axes: say so, with a way to see them. */
+.xy-focus-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  color: var(--warning-text);
+  font-size: 12px;
+  line-height: 17px;
+}
+.xy-focus-note > svg {
+  flex: none;
+}
+.xy-focus-note .btn {
+  color: var(--text);
+}

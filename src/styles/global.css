@@ -1,0 +1,828 @@
+/*
+ * X-Plane Plotter: a soft, Jira-like look in light and dark (after the Bristol FSAI Board), with Bristol red as the
+ * accent and the Geist type family. The theme is <html data-theme="light|dark"> (src/lib/theme.ts). Light is the base;
+ * dark overrides it. Chart colours (series slots, grid, axis ink) are tokens too, so charts follow the theme
+ * (src/charts/theme.ts reads them).
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces */
+  --bg: #ffffff; /* the page */
+  --bg-inset: #ffffff; /* the header */
+  --surface: #ffffff; /* cards, side panels, dialogs */
+  --surface-overlay: #ffffff; /* menus and popovers */
+  --surface-hover: #fafbfc; /* a row or card under the pointer */
+  --surface-2: #f7f8f9; /* quiet fills: table header, code, callouts */
+  --surface-3: #f1f2f4; /* stronger fills: tags, pressed things */
+  --surface-sunken: #f7f8f9; /* the canvas behind cards */
+  --overlay: rgba(9, 30, 66, 0.45);
+  --glow: rgba(171, 31, 45, 0.09);
+
+  /* Lines */
+  --border: #dcdfe4;
+  --border-muted: #ebecf0;
+  --border-strong: #b3b9c4;
+
+  /* Text */
+  --text: #172b4d;
+  --text-muted: #44546f;
+  --text-subtle: #626f86;
+  --text-inverse: #ffffff;
+  --link: #0c66e4;
+
+  /* Bristol red */
+  --accent: #ab1f2d;
+  --accent-hover: #951b27;
+  --accent-active: #7f1721;
+  --accent-text: #ab1f2d;
+  --accent-soft: rgba(171, 31, 45, 0.07);
+  --accent-border: rgba(171, 31, 45, 0.45);
+  --focus: #388bff;
+
+  /* States */
+  --success: #22a06b;
+  --success-text: #216e4e;
+  --success-soft: rgba(34, 160, 107, 0.14);
+  --warning: #e56910;
+  --warning-text: #a54800;
+  --warning-soft: #fff3eb;
+  --danger: #c9372c;
+  --danger-text: #ae2e24;
+  --danger-soft: #ffeceb;
+  --danger-soft-hover: #ffd5d2;
+  --danger-border: #fd9891;
+  --info-soft: #e9f2ff;
+  --info-text: #0055cc;
+
+  /* Controls */
+  --btn-bg: rgba(9, 30, 66, 0.06);
+  --btn-bg-hover: rgba(9, 30, 66, 0.12);
+  --btn-bg-active: rgba(9, 30, 66, 0.18);
+  --input-bg: #f7f8f9;
+  --input-bg-hover: #f1f2f4;
+  --input-border: #dcdfe4;
+
+  /* Charts (validated with the dataviz palette checker against --surface: all hard gates pass; light slots 3, 4, 5
+     sit under 3:1 contrast, so every chart keeps a legend, a tooltip and a table view) */
+  --chart-surface: #ffffff;
+  --chart-text: #172b4d;
+  --chart-text-muted: #626f86;
+  --chart-grid: #ebecf0;
+  --chart-axis: #b3b9c4;
+  --chart-crosshair: #44546f;
+  --chart-selection: rgba(12, 102, 228, 0.12);
+  --chart-selection-border: rgba(12, 102, 228, 0.55);
+  --series-1: #2a78d6; /* blue */
+  --series-2: #eb6834; /* orange */
+  --series-3: #1baf7a; /* aqua */
+  --series-4: #eda100; /* yellow */
+  --series-5: #e87ba4; /* magenta */
+  --series-6: #008300; /* green */
+  --series-7: #6250d6; /* violet */
+  --series-8: #e34948; /* red */
+
+  /* Shape and depth */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-sm: 0 1px 1px rgba(9, 30, 66, 0.12);
+  --shadow-card: 0 1px 1px rgba(9, 30, 66, 0.2), 0 0 1px rgba(9, 30, 66, 0.28);
+  --shadow-card-hover: 0 4px 8px -2px rgba(9, 30, 66, 0.2), 0 0 1px rgba(9, 30, 66, 0.3);
+  --shadow: 0 8px 16px -4px rgba(9, 30, 66, 0.2), 0 0 1px rgba(9, 30, 66, 0.3);
+  --shadow-lg: 0 16px 32px -8px rgba(9, 30, 66, 0.26), 0 0 1px rgba(9, 30, 66, 0.3);
+
+  --font: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  --header-h: 56px;
+  --tabs-h: 44px;
+  --sidebar-w: 300px;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #1d2125;
+  --bg-inset: #1d2125;
+  --surface: #22272b;
+  --surface-overlay: #282e33;
+  --surface-hover: #282e33;
+  --surface-2: #282e33;
+  --surface-3: #2c333a;
+  --surface-sunken: #161a1d;
+  --overlay: rgba(3, 4, 4, 0.6);
+  --glow: rgba(171, 31, 45, 0.24);
+
+  --border: #38414a;
+  --border-muted: #2c333a;
+  --border-strong: #596773;
+
+  --text: #c7d1db;
+  --text-muted: #9fadbc;
+  --text-subtle: #8c9bab;
+  --text-inverse: #1d2125;
+  --link: #579dff;
+
+  --accent: #ab1f2d;
+  --accent-hover: #c22a3a;
+  --accent-active: #8f1824;
+  --accent-text: #ff8f87;
+  --accent-soft: rgba(248, 113, 104, 0.12);
+  --accent-border: rgba(248, 113, 104, 0.5);
+  --focus: #85b8ff;
+
+  --success: #4bce97;
+  --success-text: #7ee2b8;
+  --success-soft: rgba(75, 206, 151, 0.16);
+  --warning: #fea362;
+  --warning-text: #fec195;
+  --warning-soft: #38291e;
+  --danger: #f87168;
+  --danger-text: #fd9891;
+  --danger-soft: #42221f;
+  --danger-soft-hover: #5d1f1a;
+  --danger-border: #ae2e24;
+  --info-soft: #1c2b41;
+  --info-text: #85b8ff;
+
+  --btn-bg: rgba(161, 189, 217, 0.08);
+  --btn-bg-hover: rgba(161, 189, 217, 0.16);
+  --btn-bg-active: rgba(161, 189, 217, 0.24);
+  --input-bg: #22272b;
+  --input-bg-hover: #282e33;
+  --input-border: #38414a;
+
+  --chart-surface: #22272b;
+  --chart-text: #c7d1db;
+  --chart-text-muted: #8c9bab;
+  --chart-grid: #2c333a;
+  --chart-axis: #454f59;
+  --chart-crosshair: #9fadbc;
+  --chart-selection: rgba(87, 157, 255, 0.16);
+  --chart-selection-border: rgba(133, 184, 255, 0.6);
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+
+  --shadow-sm: 0 1px 1px rgba(3, 4, 4, 0.4);
+  --shadow-card: 0 1px 1px rgba(3, 4, 4, 0.5), 0 0 1px rgba(3, 4, 4, 0.5);
+  --shadow-card-hover: 0 4px 8px -2px rgba(3, 4, 4, 0.6), 0 0 0 1px rgba(166, 197, 226, 0.12);
+  --shadow: 0 0 0 1px rgba(166, 197, 226, 0.12), 0 8px 16px -4px rgba(3, 4, 4, 0.5);
+  --shadow-lg: 0 0 0 1px rgba(166, 197, 226, 0.12), 0 16px 32px -8px rgba(3, 4, 4, 0.6);
+}
+
+/*
+ * Group / series colour chips: --opt-fg text on --opt-bg, --opt-border, and --opt-solid for dots and line keys.
+ * Slots follow the chart series order (.slot-0 = --series-1 ...), so a test-point group keeps one colour everywhere.
+ */
+.slot-0 { --opt-solid: var(--series-1); --opt-fg: #0055cc; --opt-bg: #e9f2ff; --opt-border: #85b8ff; }
+.slot-1 { --opt-solid: var(--series-2); --opt-fg: #a54800; --opt-bg: #fff3eb; --opt-border: #fec195; }
+.slot-2 { --opt-solid: var(--series-3); --opt-fg: #216e4e; --opt-bg: #dcfff1; --opt-border: #7ee2b8; }
+.slot-3 { --opt-solid: var(--series-4); --opt-fg: #7f5f01; --opt-bg: #fff7d6; --opt-border: #f5cd47; }
+.slot-4 { --opt-solid: var(--series-5); --opt-fg: #943d73; --opt-bg: #ffecf8; --opt-border: #f797d2; }
+.slot-5 { --opt-solid: var(--series-6); --opt-fg: #216e4e; --opt-bg: #e3fce9; --opt-border: #7ee2b8; }
+.slot-6 { --opt-solid: var(--series-7); --opt-fg: #5e4db2; --opt-bg: #f3f0ff; --opt-border: #b8acf6; }
+.slot-7 { --opt-solid: var(--series-8); --opt-fg: #ae2e24; --opt-bg: #ffeceb; --opt-border: #fd9891; }
+
+[data-theme='dark'] .slot-0 { --opt-fg: #85b8ff; --opt-bg: #1c2b41; --opt-border: #0055cc; }
+[data-theme='dark'] .slot-1 { --opt-fg: #fec195; --opt-bg: #38291e; --opt-border: #a54800; }
+[data-theme='dark'] .slot-2 { --opt-fg: #7ee2b8; --opt-bg: #1c3329; --opt-border: #216e4e; }
+[data-theme='dark'] .slot-3 { --opt-fg: #f5cd47; --opt-bg: #332e1b; --opt-border: #7f5f01; }
+[data-theme='dark'] .slot-4 { --opt-fg: #f797d2; --opt-bg: #3d2232; --opt-border: #943d73; }
+[data-theme='dark'] .slot-5 { --opt-fg: #7ee2b8; --opt-bg: #16301f; --opt-border: #216e4e; }
+[data-theme='dark'] .slot-6 { --opt-fg: #b8acf6; --opt-bg: #2b273f; --opt-border: #5e4db2; }
+[data-theme='dark'] .slot-7 { --opt-fg: #fd9891; --opt-bg: #42221f; --opt-border: #ae2e24; }
+
+/* ---------------------------------------------------------------- base */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 20px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(171, 31, 45, 0.22);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+p {
+  margin: 0;
+}
+
+code,
+.mono {
+  font-family: var(--mono);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+.subtle {
+  color: var(--text-subtle);
+}
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A small spaced-out label ("FLIGHT RECORDING"). */
+.eyebrow {
+  color: var(--text-subtle);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  line-height: 16px;
+  text-transform: uppercase;
+}
+
+/* ---------------------------------------------------------------- buttons */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--btn-bg);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    box-shadow 120ms ease;
+}
+.btn:hover:not(:disabled) {
+  background: var(--btn-bg-hover);
+}
+.btn:active:not(:disabled) {
+  background: var(--btn-bg-active);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.btn-primary:active:not(:disabled) {
+  background: var(--accent-active);
+}
+.btn-danger {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+.btn-danger:hover:not(:disabled) {
+  background: var(--danger-soft-hover);
+}
+.btn-ghost {
+  background: transparent;
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--btn-bg);
+}
+.btn-ghost:active:not(:disabled) {
+  background: var(--btn-bg-hover);
+}
+.btn-outline {
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.btn-outline:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+.btn-sm {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+.btn-xs {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+.btn-icon {
+  width: 32px;
+  padding: 0;
+}
+.btn-icon.btn-sm {
+  width: 28px;
+}
+.btn-icon.btn-xs {
+  width: 24px;
+}
+/* A toggle that is on (Zoom box, New panel ...): info blue, because red is kept for primary actions and the open tab. */
+.btn[aria-pressed='true'] {
+  background: var(--info-soft);
+  color: var(--info-text);
+}
+
+/* A row of mutually exclusive options (Zoom / Select, Points / Lines ...). */
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius);
+  background: var(--btn-bg);
+}
+.segmented-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.segmented-option:hover {
+  color: var(--text);
+}
+.segmented-option[aria-pressed='true'],
+.segmented-option[aria-checked='true'] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-card);
+}
+
+/* ---------------------------------------------------------------- form controls */
+
+.input,
+.select,
+.textarea {
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius);
+  background-color: var(--input-bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 20px;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+.input:hover:not(:focus):not(:disabled),
+.select:hover:not(:focus):not(:disabled),
+.textarea:hover:not(:focus):not(:disabled) {
+  background-color: var(--input-bg-hover);
+}
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--focus);
+  background-color: var(--surface);
+  box-shadow: 0 0 0 1px var(--focus);
+}
+.input[aria-invalid='true'],
+.textarea[aria-invalid='true'] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 1px var(--danger);
+}
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--text-subtle);
+}
+.input-sm,
+.select-sm {
+  min-height: 28px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  font-size: 13px;
+}
+.textarea {
+  resize: vertical;
+  min-height: 96px;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.select {
+  appearance: none;
+  padding-right: 30px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) 50%,
+    calc(100% - 11px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.field-label {
+  display: block;
+  color: var(--text-subtle);
+  font-size: 12px;
+  font-weight: 600;
+}
+.field-hint {
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 16px;
+}
+.field-error {
+  color: var(--danger-text);
+  font-size: 13px;
+}
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+.check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* ---------------------------------------------------------------- chips, lozenges, badges */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--opt-bg, var(--surface-3));
+  color: var(--opt-fg, var(--text-muted));
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 22px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chip-md {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 13px;
+  line-height: 26px;
+}
+.chip-plain {
+  --opt-fg: var(--text-muted);
+  --opt-bg: var(--surface-3);
+  border-radius: var(--radius-sm);
+}
+.chip-status {
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 20px;
+  text-transform: uppercase;
+}
+.chip-dot {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--opt-solid, var(--text-subtle));
+}
+/* A short stroke of the series colour: the key for a line series (tooltips, legends, chips). */
+.line-key {
+  display: inline-block;
+  width: 14px;
+  height: 3px;
+  flex: none;
+  border-radius: 2px;
+  background: var(--key, var(--opt-solid, var(--text-subtle)));
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.badge-count {
+  min-width: 20px;
+  justify-content: center;
+  padding: 0 6px;
+  background: var(--btn-bg-hover);
+  color: var(--text-muted);
+}
+.badge-success {
+  background: var(--success-soft);
+  color: var(--success-text);
+}
+.badge-warning {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+.badge-danger {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+.badge-info {
+  background: var(--info-soft);
+  color: var(--info-text);
+}
+
+/* ---------------------------------------------------------------- cards, callouts, tables */
+
+.card {
+  min-width: 0;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-muted);
+}
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.card-body {
+  padding: 16px;
+}
+
+.callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.callout > svg {
+  flex: none;
+  margin-top: 2px;
+}
+.callout-info {
+  background: var(--info-soft);
+  color: var(--info-text);
+}
+.callout-warning {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+.callout-danger {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+.callout-success {
+  background: var(--success-soft);
+  color: var(--success-text);
+}
+
+/* A plain data table: sticky grey header, hairline rows, tabular figures. */
+.table-wrap {
+  /* Positioned, so absolutely placed descendants (.sr-only text in cells) stay inside the scroller instead of
+     widening the view's scroll area. */
+  position: relative;
+  min-width: 0;
+  overflow: auto;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-lg);
+  overscroll-behavior: contain;
+}
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+.table th,
+.table td {
+  height: 36px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border-muted);
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 32px;
+  border-bottom-color: var(--border);
+  background: var(--surface-2);
+  color: var(--text-subtle);
+  font-size: 12px;
+  font-weight: 600;
+}
+.table td {
+  background: var(--row-bg, var(--surface));
+}
+.table td.num,
+.table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+@media (hover: hover) {
+  .table tbody tr:hover {
+    --row-bg: var(--surface-2);
+  }
+}
+
+/* ---------------------------------------------------------------- misc */
+
+.kbd {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--text-muted);
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.progress {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--btn-bg-hover);
+}
+.progress > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+
+.empty-state {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  padding: 48px 16px;
+  color: var(--text-muted);
+  text-align: center;
+}
+.empty-state svg {
+  color: var(--text-subtle);
+}
+
+/* ---------------------------------------------------------------- app shell */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 0;
+}
+.app-main {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface-sunken);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

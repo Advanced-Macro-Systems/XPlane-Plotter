@@ -1,0 +1,441 @@
+/* Overview tab (views/overview). Class prefix: ov- */
+
+.ov-page {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  width: min(1320px, 100%);
+  margin: 0 auto;
+  padding: 24px 28px 48px;
+}
+
+/* ---------------------------------------------------------------- heading */
+
+.ov-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+.ov-head-text {
+  display: flex;
+  flex: 1 1 420px;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.ov-title {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 30px;
+  overflow-wrap: anywhere;
+}
+.ov-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  color: var(--text-subtle);
+  font-size: 13px;
+}
+.ov-demo-badge {
+  margin-left: 4px;
+}
+.ov-head-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+/* ---------------------------------------------------------------- figures */
+
+/* Six tiles in one row, else two rows of three, else three rows of two: never an orphan on a row of its own. */
+.ov-figures {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin-top: -8px;
+}
+.ov-figure-label {
+  color: var(--text-subtle);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- data-quality notes */
+
+.ov-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: -12px;
+}
+.ov-callout {
+  line-height: 20px;
+}
+/* A neutral note: a card on the page's canvas (the plain callout fill is the canvas colour). */
+.ov-callout-quiet {
+  border: 1px solid var(--border-muted);
+  background: var(--surface);
+}
+.ov-callout-quiet > svg {
+  color: var(--text-subtle);
+}
+.ov-callout-body {
+  min-width: 0;
+}
+.ov-callout-body strong {
+  font-weight: 600;
+}
+.ov-callout-body ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.ov-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font-size: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.ov-link:hover {
+  text-decoration: underline;
+}
+
+/* ---------------------------------------------------------------- sections */
+
+.ov-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.ov-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 16px;
+}
+.ov-section-title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.ov-section-note {
+  color: var(--text-subtle);
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- flight at a glance */
+
+.ov-glance-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 400px);
+  gap: 16px;
+  align-items: stretch;
+}
+.ov-glance-grid-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ov-glance {
+  overflow: hidden;
+}
+.ov-glance-empty {
+  padding: 32px 16px;
+  text-align: center;
+}
+.ov-glance-panel + .ov-glance-panel {
+  border-top: 1px solid var(--border-muted);
+}
+.ov-glance-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-height: 34px;
+  padding: 8px 16px 0;
+}
+.ov-glance-title {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ov-glance-unit {
+  margin-left: 4px;
+  color: var(--text-subtle);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+}
+.ov-glance-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.series-chip.ov-chip {
+  height: 22px;
+  padding: 0 8px;
+  background: transparent;
+}
+.ov-glance-range {
+  margin-left: auto;
+  color: var(--text-subtle);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ov-glance-plot {
+  width: 100%;
+}
+
+.ov-glance-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--border-muted);
+  color: var(--text-subtle);
+  font-size: 12px;
+}
+.ov-glance-key {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.ov-glance-key-label {
+  font-weight: 600;
+}
+.ov-glance-group {
+  height: 22px;
+}
+/* The key for the thin vertical reset / gap lines. */
+.ov-glance-marker {
+  width: 1px;
+  height: 14px;
+  background: var(--chart-text-muted);
+}
+
+.ov-track {
+  overflow: hidden;
+}
+.ov-track-size {
+  color: var(--text-subtle);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ov-track-plot {
+  position: relative;
+  flex: 1;
+  min-height: 300px;
+}
+.ov-track-chart {
+  position: absolute;
+  inset: 0;
+}
+
+/* ---------------------------------------------------------------- channel groups */
+
+.ov-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ov-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 6px 0 12px;
+  border: 1px solid var(--border-muted);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+.ov-group:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+.ov-group-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ov-group-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+/* "29 more groups" / "Show fewer": a quieter, dashed chip. */
+.ov-group.ov-group-more {
+  gap: 4px;
+  padding: 0 10px 0 12px;
+  border-style: dashed;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
+}
+.ov-group.ov-group-more:hover {
+  color: var(--text);
+}
+
+/* ---------------------------------------------------------------- next steps */
+
+.ov-next-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.ov-next {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  padding: 16px 16px 14px;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+.ov-next:hover {
+  border-color: var(--border);
+  box-shadow: var(--shadow-card-hover);
+}
+.ov-next-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 4px;
+}
+.ov-next-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius);
+  background: var(--surface-3);
+  color: var(--text-muted);
+}
+.ov-next-tab {
+  flex: 1;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+.ov-next-arrow {
+  color: var(--text-subtle);
+  transition: transform 120ms ease;
+}
+.ov-next:hover .ov-next-arrow {
+  color: var(--text);
+  transform: translateX(2px);
+}
+.ov-next-lead {
+  font-size: 15px;
+  font-weight: 600;
+}
+.ov-next-text {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+.ov-next-status {
+  max-width: 100%;
+  margin-top: auto;
+  padding-top: 8px;
+  overflow: hidden;
+  color: var(--text-subtle);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- narrow screens */
+
+@media (max-width: 1180px) {
+  .ov-figures {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1080px) {
+  .ov-glance-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ov-track-plot {
+    min-height: 360px;
+  }
+}
+
+@media (max-width: 900px) {
+  .ov-next-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .ov-page {
+    gap: 24px;
+    padding: 16px 12px 32px;
+  }
+  .ov-title {
+    font-size: 19px;
+    line-height: 26px;
+  }
+  .ov-figures {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .ov-figures .stat-tile {
+    padding: 12px;
+  }
+  .ov-figures .stat-tile-value {
+    font-size: 21px;
+    line-height: 28px;
+  }
+  .ov-glance-head {
+    padding: 8px 12px 0;
+  }
+  .ov-glance-range {
+    margin-left: 0;
+  }
+  .ov-track-plot {
+    min-height: 300px;
+  }
+}

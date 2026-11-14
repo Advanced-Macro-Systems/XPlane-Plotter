@@ -1,0 +1,516 @@
+/* Test points view (views/points/PointsView.tsx). Class prefix: pt- */
+
+/* ---------------------------------------------------------------- toolbar */
+
+.pt-toolbar {
+  row-gap: 10px;
+}
+.pt-groups {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.pt-group-chip {
+  border: 1px solid var(--opt-border, var(--border));
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+.pt-group-chip:hover {
+  border-color: var(--opt-solid, var(--border-strong));
+}
+.pt-group-chip[aria-expanded='true'] {
+  box-shadow: 0 0 0 2px var(--opt-border, var(--border));
+}
+.pt-chip-name {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pt-chip-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  opacity: 0.75;
+}
+.pt-actions {
+  flex-wrap: wrap;
+}
+.pt-columns .badge {
+  height: 18px;
+  margin-left: 2px;
+}
+
+.pt-group-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 6px 6px 2px;
+}
+.pt-group-menu .menu-divider {
+  margin: 0 -12px;
+}
+.pt-swatches {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+}
+.pt-swatch {
+  aspect-ratio: 1;
+  width: 100%;
+  padding: 0;
+  border: 2px solid var(--surface-overlay);
+  border-radius: 50%;
+  background: var(--opt-solid);
+  box-shadow: 0 0 0 1px var(--border);
+  cursor: pointer;
+}
+.pt-swatch:hover {
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+.pt-swatch[aria-checked='true'] {
+  box-shadow: 0 0 0 2px var(--text);
+}
+.pt-menu-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* ---------------------------------------------------------------- main column */
+
+/* The table frame takes the height that is left and scrolls both ways inside it (sticky header and name columns). */
+.pt-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding: 16px 20px 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.pt-heading {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.pt-heading-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.pt-heading h2 {
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  line-height: 28px;
+}
+.pt-heading-sub {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.pt-footnote {
+  flex: none;
+  max-width: 920px;
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* ---------------------------------------------------------------- table */
+
+.pt-table-wrap {
+  --pt-group-w: 160px;
+  /* The containing block of anything absolute inside (screen-reader labels): otherwise it escapes this scroller and
+     makes the whole view scroll sideways. */
+  position: relative;
+  flex: 0 1 auto;
+  min-height: 140px;
+  overflow: auto;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  overscroll-behavior: contain;
+}
+.pt-table th,
+.pt-table td {
+  height: 52px;
+}
+.pt-table th {
+  height: 36px;
+}
+.pt-table th:first-child,
+.pt-table td:first-child {
+  padding-left: 14px;
+}
+
+/* Group and name stay on the left, the actions on the right, while the channel columns scroll. */
+.pt-table .pt-col-group {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: var(--pt-group-w);
+  min-width: var(--pt-group-w);
+  max-width: var(--pt-group-w);
+}
+.pt-table .pt-col-name {
+  position: sticky;
+  left: var(--pt-group-w);
+  z-index: 1;
+  min-width: 220px;
+  max-width: 300px;
+  border-right: 1px solid var(--border-muted);
+}
+.pt-table .pt-col-actions {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  width: 1%;
+  padding: 0 8px;
+  border-left: 1px solid var(--border-muted);
+}
+.pt-table th.pt-col-group,
+.pt-table th.pt-col-name,
+.pt-table th.pt-col-actions {
+  z-index: 3;
+}
+/* Soft edges where the channel columns slide under the pinned ones. */
+.pt-table .pt-col-name {
+  box-shadow: 6px 0 8px -8px rgba(9, 30, 66, 0.35);
+}
+.pt-table .pt-col-actions {
+  box-shadow: -6px 0 8px -8px rgba(9, 30, 66, 0.35);
+}
+[data-theme='dark'] .pt-table .pt-col-name {
+  box-shadow: 6px 0 8px -8px rgba(0, 0, 0, 0.8);
+}
+[data-theme='dark'] .pt-table .pt-col-actions {
+  box-shadow: -6px 0 8px -8px rgba(0, 0, 0, 0.8);
+}
+
+.pt-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 -4px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.pt-sort:hover {
+  background: var(--btn-bg);
+  color: var(--text);
+}
+.pt-sort-icon {
+  display: inline-flex;
+  opacity: 0;
+}
+.pt-sort:hover .pt-sort-icon {
+  opacity: 0.5;
+}
+.pt-sort.is-active {
+  color: var(--text);
+}
+.pt-sort.is-active .pt-sort-icon {
+  opacity: 1;
+}
+
+.pt-th-name {
+  color: var(--text-muted);
+}
+.pt-th-unit {
+  margin-left: 4px;
+  color: var(--text-subtle);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* Group chip with an invisible native select over it. */
+.pt-group-pick {
+  position: relative;
+  max-width: 100%;
+  padding-right: 6px;
+  border: 1px solid var(--opt-border, var(--border));
+  cursor: pointer;
+}
+.pt-group-pick:hover {
+  border-color: var(--opt-solid, var(--border-strong));
+}
+.pt-group-pick:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.pt-group-caret {
+  flex: none;
+  opacity: 0.7;
+}
+.pt-group-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.pt-name {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+.pt-name-input {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  margin: 0 -6px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+.pt-name-input:hover {
+  border-color: var(--border);
+}
+.pt-name-input:focus {
+  outline: none;
+  border-color: var(--focus);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--focus);
+}
+.pt-note {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pt-col-window {
+  color: var(--text-muted);
+}
+.pt-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pt-hidden-tag {
+  height: 20px;
+  line-height: 20px;
+}
+
+.pt-stat {
+  font-variant-numeric: tabular-nums;
+}
+.pt-sd {
+  color: var(--text-subtle);
+}
+.pt-stat.is-drifting .pt-mean {
+  color: var(--warning-text);
+}
+.pt-drift-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--warning);
+  box-shadow: 0 0 0 2px var(--warning-soft);
+  vertical-align: 1px;
+}
+.pt-drift-dot-inline {
+  margin: 0 2px 0 0;
+}
+
+.pt-actions-cell {
+  display: inline-flex;
+  gap: 2px;
+}
+.pt-delete:hover:not(:disabled) {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+
+/* A hidden point: muted ink (rows stay opaque under the sticky columns). */
+.pt-row.is-hidden td {
+  color: var(--text-subtle);
+}
+.pt-row.is-hidden .pt-name-input {
+  color: var(--text-subtle);
+}
+.pt-row.is-hidden .pt-group-pick {
+  filter: saturate(0.3);
+}
+
+/* ---------------------------------------------------------------- empty state */
+
+.pt-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 600px;
+  margin: 40px auto;
+  padding: 32px 32px 28px;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  text-align: center;
+}
+.pt-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text-subtle);
+}
+.pt-empty h2 {
+  font-size: 18px;
+}
+.pt-empty-lead {
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 21px;
+}
+.pt-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0;
+  padding: 12px 16px 12px 36px;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: left;
+}
+.pt-steps strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.pt-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* ---------------------------------------------------------------- dialogs */
+
+.pt-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pt-form-range {
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.pt-import {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pt-import-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+}
+.pt-import-facts div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pt-import-facts dt {
+  color: var(--text-subtle);
+  font-size: 12px;
+  font-weight: 600;
+}
+.pt-import-facts dd {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pt-import-note {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- narrow screens */
+
+/* Narrower pinned columns leave room for the mean ± σ columns. */
+@media (max-width: 1280px) {
+  .pt-table-wrap {
+    --pt-group-w: 140px;
+  }
+  .pt-table .pt-col-name {
+    min-width: 180px;
+    max-width: 210px;
+  }
+  .pt-table th,
+  .pt-table td {
+    padding: 0 8px;
+  }
+}
+
+@media (max-width: 700px) {
+  .pt-table-wrap {
+    --pt-group-w: 132px;
+  }
+  .pt-table .pt-col-name {
+    min-width: 170px;
+  }
+}
+
+@media (max-width: 560px) {
+  .pt-main {
+    padding: 12px;
+  }
+  /* On a phone only the group column stays put. */
+  .pt-table .pt-col-name,
+  .pt-table .pt-col-actions {
+    position: static;
+  }
+  .pt-empty {
+    margin: 16px auto;
+    padding: 24px 18px;
+  }
+}
+
+.pt-delete-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pt-delete-text small {
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 16px;
+}

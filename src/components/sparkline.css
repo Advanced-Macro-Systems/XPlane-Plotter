@@ -1,0 +1,6 @@
+/* Sparkline (components/Sparkline.tsx): a fixed-size canvas; the size is set inline. */
+
+.sparkline {
+  display: block;
+  flex: none;
+}

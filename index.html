@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Load X-Plane 12 Data.txt flight logs in your browser and plot, crop, fit and export any channel. Files never leave your device."
+    />
+    <title>X-Plane Plotter</title>
+    <script>
+      // The saved theme before the first paint, so the page never flashes the wrong one (see src/lib/theme.ts).
+      // Nothing saved yet (a first visit): follow the device.
+      ;(function () {
+        var choice = null
+        try {
+          choice = localStorage.getItem('xpp:theme')
+        } catch (error) {
+          // storage unavailable: use the default
+        }
+        var deviceDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        var theme = choice === 'dark' || ((choice === 'system' || choice === null) && deviceDark) ? 'dark' : 'light'
+        document.documentElement.setAttribute('data-theme', theme)
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>X-Plane Plotter needs JavaScript: it reads and plots your flight log entirely in the browser.</noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

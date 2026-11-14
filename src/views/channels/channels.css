@@ -1,0 +1,773 @@
+/* Channels view (views/channels/ChannelsView.tsx) and the formula editor (FormulaDialog.tsx). Class prefix: ch- */
+
+/* ---------------------------------------------------------------- toolbar */
+
+.ch-search {
+  position: relative;
+  flex: 0 1 300px;
+  min-width: 180px;
+}
+.ch-search-icon {
+  position: absolute;
+  top: 50%;
+  left: 9px;
+  color: var(--text-subtle);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+.ch-search-input {
+  padding-left: 28px;
+}
+.ch-search-input::-webkit-search-cancel-button {
+  cursor: pointer;
+}
+.ch-group-select {
+  width: auto;
+  max-width: 240px;
+}
+.ch-toggle {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.ch-toggle:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.ch-counts {
+  color: var(--text-subtle);
+  font-size: 12px;
+  white-space: nowrap;
+}
+/* Narrow toolbars: the counts move to a line of their own, under the controls. */
+@media (max-width: 1180px) {
+  .ch-counts {
+    flex-basis: 100%;
+    order: 10;
+    margin-top: -2px;
+  }
+}
+
+/* ---------------------------------------------------------------- layout: formulas above a table that fills the rest */
+
+.ch-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  padding: 16px 20px 20px;
+}
+
+/* ---------------------------------------------------------------- formulas */
+
+.ch-formulas {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  max-height: 46%;
+  min-height: 0;
+}
+.ch-formulas-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 12px 12px 12px 16px;
+}
+.ch-formulas-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ch-formulas-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.ch-formulas-text {
+  max-width: 78ch;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.ch-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 0 16px 14px;
+}
+.ch-presets-label {
+  margin-right: 2px;
+  color: var(--text-subtle);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* A pill button: preset chips here and in the dialog. */
+.ch-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 26px;
+  padding: 0 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+.ch-pill:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+.ch-pill[aria-pressed='true'] {
+  border-color: transparent;
+  background: var(--info-soft);
+  color: var(--info-text);
+  font-weight: 600;
+}
+.ch-pill-quiet {
+  border-style: dashed;
+  color: var(--text-muted);
+}
+
+.ch-formula-list {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-muted);
+  list-style: none;
+  overscroll-behavior: contain;
+}
+.ch-formula {
+  display: grid;
+  grid-template-columns: minmax(150px, 260px) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 4px 16px;
+  min-height: 48px;
+  padding: 6px 8px 6px 16px;
+  border-bottom: 1px solid var(--border-muted);
+}
+.ch-formula:last-child {
+  border-bottom: 0;
+}
+@media (hover: hover) {
+  .ch-formula:hover {
+    background: var(--surface-hover);
+  }
+}
+.ch-formula-head {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ch-formula-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-weight: 600;
+}
+.ch-formula-name > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ch-formula-unit {
+  flex: none;
+  color: var(--text-subtle);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+}
+.ch-formula-alias {
+  overflow: hidden;
+  color: var(--text-subtle);
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ch-expression {
+  min-width: 0;
+  padding: 3px 8px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ch-formula-actions {
+  display: flex;
+  gap: 2px;
+}
+.ch-formula-actions .btn {
+  color: var(--text-subtle);
+}
+.ch-formula-actions .btn:hover:not(:disabled) {
+  color: var(--text);
+}
+
+/* ---------------------------------------------------------------- the table */
+
+/* The frame fits its rows and scrolls (both ways) once there are more than fit: the header and the channel column stay. */
+.ch-frame {
+  flex: 0 1 auto;
+  min-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  overscroll-behavior: contain;
+}
+.ch-table {
+  --ch-row-h: 40px;
+  /* The fixed columns below plus 200 px for the channel label. */
+  width: max(100%, 1386px);
+  table-layout: fixed;
+}
+.ch-table th,
+.ch-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ch-table td {
+  height: var(--ch-row-h);
+}
+.ch-table tbody tr:last-child td {
+  border-bottom: 1px solid var(--border-muted);
+}
+
+/* Column widths (the channel label takes what is left). */
+.ch-c-group {
+  width: 140px;
+}
+.ch-c-label {
+  width: auto;
+}
+.ch-c-short {
+  width: 100px;
+}
+.ch-c-id {
+  width: 150px;
+}
+.ch-c-unit {
+  width: 64px;
+}
+.ch-c-num {
+  width: 84px;
+}
+.ch-c-count {
+  width: 76px;
+}
+.ch-c-flags {
+  width: 148px;
+}
+.ch-c-spark {
+  width: 128px;
+}
+.ch-c-menu {
+  width: 44px;
+}
+.ch-table td.ch-c-menu {
+  padding: 0 8px 0 4px;
+}
+
+/* The channel column stays put while the rest scrolls sideways. */
+.ch-table .ch-c-label {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  box-shadow: inset -1px 0 0 var(--border-muted);
+}
+.ch-table th.ch-c-label {
+  z-index: 3;
+}
+
+.ch-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ch-sort:hover {
+  color: var(--text);
+}
+.ch-table th.num .ch-sort {
+  flex-direction: row-reverse;
+}
+.ch-sort-icon {
+  flex: none;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.ch-sort:hover .ch-sort-icon {
+  opacity: 0.5;
+}
+.ch-table th[aria-sort] .ch-sort {
+  color: var(--text);
+}
+.ch-table th[aria-sort] .ch-sort-icon {
+  opacity: 1;
+}
+
+.ch-group {
+  max-width: 100%;
+}
+.ch-group > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ch-label-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.ch-label {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Hover a row to see that its label has a description (in the label's tooltip). */
+.ch-help-icon {
+  flex: none;
+  color: var(--text-subtle);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.ch-table tr:hover .ch-help-icon,
+.ch-table tr:focus-within .ch-help-icon {
+  opacity: 1;
+}
+.ch-token {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.ch-unit {
+  color: var(--text-muted);
+}
+.ch-table td.num {
+  color: var(--text);
+}
+.ch-partial {
+  color: var(--warning-text);
+}
+.ch-flags {
+  display: flex;
+  gap: 4px;
+}
+.ch-flag-constant {
+  background: var(--btn-bg);
+  color: var(--text-subtle);
+}
+.ch-c-spark .sparkline {
+  margin: 0;
+}
+.ch-menu-button {
+  color: var(--text-subtle);
+}
+.ch-menu-button[aria-expanded='true'] {
+  background: var(--btn-bg-hover);
+  color: var(--text);
+}
+
+.ch-none {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 36px 16px 40px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------- the row actions menu (fixed, outside the scroller) */
+
+.ch-menu {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 80;
+  width: 288px;
+  visibility: hidden;
+}
+.ch-menu[data-placed] {
+  visibility: visible;
+}
+/* The channel's name as written (units are case-sensitive: no upper-casing here). */
+.ch-menu-heading {
+  overflow: hidden;
+  font-family: var(--font);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+.ch-menu-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.ch-menu-text small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ch-menu-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ch-menu-icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  color: var(--text-subtle);
+}
+.ch-menu-fx {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-style: italic;
+  font-weight: 700;
+}
+.ch-menu-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---------------------------------------------------------------- formula dialog */
+
+.ch-fd .modal-body {
+  padding-bottom: 8px;
+}
+.ch-fd-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 20px 24px;
+  align-items: start;
+}
+.ch-fd-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.ch-fd-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ch-fd-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 92px;
+  overflow-y: auto;
+}
+.ch-fd-names {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  gap: 12px;
+}
+.ch-fd-hint code,
+.ch-fd-status code {
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.ch-fd-expression {
+  min-height: 104px;
+  line-height: 20px;
+}
+.ch-fd-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 19px;
+}
+.ch-fd-status > svg {
+  flex: none;
+  margin-top: 2px;
+}
+.ch-fd-ok > svg {
+  color: var(--success);
+}
+.ch-fd-error {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+.ch-fd-error-text {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.ch-fd-error-text > svg {
+  flex: none;
+  margin-top: 2px;
+}
+.ch-fd-caret {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  overflow-x: auto;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 17px;
+  text-align: left;
+  white-space: pre;
+  cursor: pointer;
+}
+.ch-fd-caret-mark {
+  color: var(--danger-text);
+  font-weight: 700;
+}
+.ch-fd-goto {
+  align-self: flex-start;
+}
+.ch-fd-preset-note {
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.ch-fd-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.ch-fd-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ch-fd-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.ch-fd-stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ch-fd-stat-label {
+  color: var(--text-subtle);
+  font-size: 11px;
+  font-weight: 600;
+}
+.ch-fd-stat-value {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ch-fd-spark {
+  width: 100%;
+  overflow: hidden;
+}
+.ch-fd-spark .sparkline {
+  max-width: 100%;
+}
+
+.ch-fd-insert {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.ch-fd-insert-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 8px;
+}
+.ch-fd-insert-match {
+  overflow: hidden;
+  color: var(--text-subtle);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ch-fd-list {
+  max-height: 372px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  list-style: none;
+  overscroll-behavior: contain;
+}
+.ch-fd-list-heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 6px 10px 4px;
+  background: var(--surface-2);
+  color: var(--text-subtle);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.ch-fd-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border-muted);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+li:last-child > .ch-fd-item {
+  border-bottom: 0;
+}
+.ch-fd-item:hover,
+.ch-fd-item:focus-visible {
+  background: var(--surface-2);
+  outline: none;
+}
+.ch-fd-item code {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ch-fd-item span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 16px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.ch-fd-none {
+  padding: 16px 12px;
+  color: var(--text-subtle);
+  font-size: 12px;
+  text-align: center;
+}
+.ch-fd-footer {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.ch-fd-blocker {
+  margin-right: auto;
+  color: var(--text-subtle);
+  font-size: 12px;
+}
+.ch-fd-save-error {
+  margin-right: auto;
+}
+
+@media (max-width: 820px) {
+  .ch-fd-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ch-fd-list {
+    max-height: 220px;
+  }
+}
+
+@media (max-width: 900px) {
+  .ch-formula {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .ch-formula .ch-expression {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .ch-formula .sparkline {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .ch-body {
+    padding: 12px;
+  }
+  /* One scrolling line of presets: the table keeps the height. */
+  .ch-presets {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .ch-presets .ch-pill {
+    flex: none;
+  }
+  .ch-search {
+    flex-basis: 100%;
+  }
+  .ch-fd-names {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ch-fd-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

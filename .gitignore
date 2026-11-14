@@ -1,0 +1,21 @@
+# Build output and dependencies
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Flight logs: keep your own Data.txt files out of the repo (they can be large and are yours).
+# Put local test files in samples/ (ignored) and point XPP_REAL_FILE at them for the opt-in real-file tests.
+samples/
+Data*.txt
+*.Data.txt
+
+# End-to-end screenshots and reports
+test-results/
+
+# Editors and OS
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+*.log
