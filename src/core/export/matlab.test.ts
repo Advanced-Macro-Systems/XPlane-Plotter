@@ -122,10 +122,33 @@ describe('matlabScript', () => {
 
   it('builds the test-point table from the tracked channels', () => {
     const text = body(script())
-    expect(text).toContain("'Vind_kias', D(:, col('_Vind,_kias', 1)), 'KIAS [kt]'")
-    expect(text).toContain("'elev1_deg_2', D(:, col('elev1,__deg', 2)), 'elev1 (2) [deg]'")
+    expect(text).toContain("'Vind_kias', D(:, col('_Vind,_kias', 1)), 'KIAS [kt]', false")
+    expect(text).toContain("'elev1_deg_2', D(:, col('elev1,__deg', 2)), 'elev1 (2) [deg]', false")
     expect(text).toContain("writetable(csvT, fullfile(outDir, 'test_points.csv'));")
     expect(text).toContain('disp(T);')
+  })
+
+  it('averages a heading through north unwrapped, as the app and its CSV do (same rule, marked per channel)', () => {
+    const base = sampleDataset()
+    const heading = fileChannel('hding,_true', 1, 5, [350, 355, 359, 2, 6, 9], 'Heading', 'deg')
+    const ds = makeDataset([...base.channels.slice(0, 5), heading, ...base.channels.slice(5)], Array.from(base.elapsed))
+    const ws = makeWorkspace({ tracked: ['hding,_true', '_Vind,_kias'] })
+    ws.xy = { ...ws.xy, x: 'hding,_true', ys: ['_Vind,_kias', 'elev1,__deg'] }
+    const text = script({}, ds, ws)
+    const main = body(text)
+    expect(main).toMatch(/^ {4}'hding_true', D\(:, col\('hding,_true', 1\)\), 'Heading \[deg\]', true$/m)
+    expect(main).toContain('S(iPoint, :) = xppStats(tracked{iTracked, 2}(pointRows{iPoint}), tracked{iTracked, 4});')
+    expect(main).toMatch(/^xy\.xHeading = true; +%/m)
+    expect(main).toMatch(/^xy\.yHeading = \[false; false\]; +%/m)
+    expect(main).toContain('sx = xppStats(xy.x(pointRows{members(iMember)}), xy.xHeading);')
+    expect(main).toContain('sy = xppStats(xy.y{iY}(pointRows{members(iMember)}), xy.yHeading(iY));')
+    // The library unwraps as core/analysis/windowStats.ts does: ±360 where consecutive finite samples jump > 180°.
+    expect(text).toContain('function s = xppStats(x, isHeading)')
+    expect(text).toContain('function u = xppUnwrapDegrees(x)')
+    expect(text).toContain('while value - previous > 180')
+    expect(text).toContain('shift = mod(s(1), 360) - s(1);')
+    // An elevator angle in degrees does not wrap.
+    expect(body(script())).toMatch(/^xy\.xHeading = false; +%/m)
   })
 
   it('defuses point and group names that a spreadsheet would run as formulas, as the app’s CSV does', () => {
@@ -185,6 +208,30 @@ describe('matlabScript', () => {
     // Every group is plotted unless the X–Y tab picked some.
     expect(text).toContain('xy.useGroup = [true; true];')
     expect(text).toContain('plotted = reshape(find(xy.useGroup), 1, []);')
+  })
+
+  it('draws each channel in its colour slot in the app, so the figure matches it after a channel was removed', () => {
+    const ws = makeWorkspace({
+      panels: [
+        { id: 'p1', channelIds: ['_Vind,_kias', 'missing', 'elev1,__deg#2'], slots: [5, 0, 2] },
+        { id: 'p2', channelIds: ['elev1,__deg'] },
+      ],
+    })
+    ws.xy = { ...ws.xy, colorBy: 'series', ys: ['elev1,__deg#2', '_Vind,_kias'], ySlots: [3, 1] }
+    const text = body(script({}, sampleDataset(), ws))
+    // Time histories: one row of seriesColors per line (1-based), panel by panel; a panel without stored slots counts
+    // by position.
+    expect(text).toContain('panelSlot = {')
+    expect(text).toMatch(/^ {4}\[6 3\]\n {4}1\n\};/m)
+    expect(text).toContain("'Color', seriesColors(panelSlot{iPanel}(iLine), :)")
+    expect(text).not.toContain('seriesColors(iLine, :)')
+    // X–Y: each y channel's colour (and marker) from its slot.
+    expect(text).toMatch(/^xy\.ySlot = \[4; 2\]; +%/m)
+    expect(text).toContain('color = seriesColors(xy.ySlot(iY), :);')
+    expect(text).not.toContain('seriesColors(iY, :)')
+    expect(text).toContain('yMarker = markers(xy.ySlot);')
+    const one = body(script({}, sampleDataset(), { ...ws, xy: { ...ws.xy, ys: ['_Vind,_kias'], ySlots: [6] } }))
+    expect(one).toMatch(/^xy\.ySlot = 7; +%/m)
   })
 
   it('fits once per colour, as the app: per group only when colouring by group, else the groups pooled per Y', () => {

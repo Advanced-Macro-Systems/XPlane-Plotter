@@ -2,7 +2,7 @@
 // per test come from the channel dictionary (core/channels: recordingSteps, loggingGuide), whose wording follows the
 // recording research (X-Plane 12 Desktop Manual, "Data Input and Output from X-Plane"): never invent menu paths here.
 
-import { recordingSteps } from '../core/channels'
+import { recordingSteps } from '../core/channels/guide'
 
 /** Habits that keep a run analysable (help dialog, "Before every run"). */
 export const BEFORE_EVERY_RUN: readonly string[] = [

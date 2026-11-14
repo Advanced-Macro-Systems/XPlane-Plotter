@@ -162,6 +162,8 @@ export function availablePresets(ds: Dataset, ws: Workspace): ResolvedPreset[] {
         xLabel: '',
         yLabel: '',
         ...patch,
+        // A preset is a fresh plot: its Y channels take the colours in order.
+        ySlots: (patch.ys ?? []).map((_, i) => i),
       },
     })
   }

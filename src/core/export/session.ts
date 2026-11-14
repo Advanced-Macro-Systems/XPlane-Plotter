@@ -220,14 +220,29 @@ function parseTimeBase(value: unknown): TimeBaseId {
 function parsePanel(value: unknown, path: string): PanelConfig {
   const p = record(value, path)
   const panel: PanelConfig = { id: nonEmpty(p.id, `${path}.id`), channelIds: strList(p.channelIds, `${path}.channelIds`) }
+  if (p.slots !== undefined) panel.slots = slotList(p.slots, `${path}.slots`)
   if (p.yZero !== undefined && bool(p.yZero, `${path}.yZero`)) panel.yZero = true
   return panel
 }
 
+/** A categorical colour slot, 0 to 7. */
+function colourSlot(value: unknown, path: string): number {
+  const slot = count(value, path)
+  if (slot > 7) damaged(path, 'must be a colour slot from 0 to 7')
+  return slot
+}
+
+/**
+ * The colour slots of a channel list (PanelConfig.slots, XYConfig.ySlots). Each must be a slot; matching them to the
+ * channels (one each, no repeats) is sanitizeWorkspace's job, which re-derives any that do not fit.
+ */
+function slotList(value: unknown, path: string): number[] {
+  return list(value, path).map((item, i) => colourSlot(item, `${path}[${i}]`))
+}
+
 function parseGroup(value: unknown, path: string): PointGroup {
   const g = record(value, path)
-  const slot = count(g.slot, `${path}.slot`)
-  if (slot > 7) damaged(`${path}.slot`, 'must be a colour slot from 0 to 7')
+  const slot = colourSlot(g.slot, `${path}.slot`)
   return { id: nonEmpty(g.id, `${path}.id`), name: str(g.name, `${path}.name`), slot }
 }
 
@@ -267,6 +282,7 @@ function parseXY(xy: Record<string, unknown>): XYConfig {
   return {
     x: xy.x as string | null,
     ys: strList(xy.ys, at('ys')),
+    ...(xy.ySlots !== undefined ? { ySlots: slotList(xy.ySlots, at('ySlots')) } : {}),
     source: oneOf(xy.source, ['all', 'view', 'points'] as const, at('source')),
     ...(xy.groups !== undefined ? { groups: strList(xy.groups, at('groups')) } : {}),
     style: oneOf(xy.style, ['points', 'lines', 'both'] as const, at('style')),

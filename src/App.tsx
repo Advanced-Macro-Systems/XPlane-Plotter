@@ -47,7 +47,11 @@ const VIEWS = Object.fromEntries(
   TAB_ORDER.map((tab) => [tab, lazy(() => loadView(tab).then((View) => ({ default: View })))]),
 ) as Record<TabId, LazyExoticComponent<ComponentType>>
 
-/** Fetches every view's chunk when the browser is idle (a dynamic import is fetched once, whoever asks first). */
+/**
+ * Fetches every view's chunk once the start page is on screen and the browser is idle (main.tsx asked for the dataset
+ * builder before the page was drawn: someone may click the demo or drop a file right away). A dynamic import is fetched
+ * once, whoever asks first: the start page never waits for them, and opening a file does not either.
+ */
 function usePrefetchViews(): void {
   useEffect(() => {
     const prefetch = () => {

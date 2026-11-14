@@ -8,6 +8,7 @@ import { Segmented } from '../../components/Segmented'
 import { ViewSidebar } from '../../components/ViewSidebar'
 import { channelTitle } from '../../core/channels'
 import { channelById } from '../../core/dataset'
+import { sanitizeSlots } from '../../core/slots'
 import type { Dataset, RowRange, Workspace, XYConfig } from '../../core/types'
 import { setXY } from '../../store/app'
 import { Dropdown } from '../../ui/Dropdown'
@@ -44,9 +45,11 @@ export function XYSidebar({ ds, ws, view, data, defaults }: XYSidebarProps) {
   const withPoints = effective.source === 'points'
   const presets = useMemo(() => availablePresets(ds, ws), [ds, ws])
   const active = matchingPreset(presets, xy)
+  // Each Y channel's chip in its stored colour slot, as in the plot and its legend.
+  const ySlots = sanitizeSlots(xy.ySlots, xy.ys.length)
   const ys = xy.ys.flatMap((id, index) => {
     const ch = channelById(ds, id)
-    return ch ? [{ id, ch, index }] : []
+    return ch ? [{ id, ch, slot: ySlots[index] }] : []
   })
   const mismatch = unitMismatch(ys.map((y) => y.ch))
   const shapes = new Map<string, MarkerShape>(data.series.map((s) => [s.y.ch.id, s.shape]))
@@ -101,11 +104,11 @@ export function XYSidebar({ ds, ws, view, data, defaults }: XYSidebarProps) {
           </div>
           {ys.length > 0 && (
             <ul className="xy-ychips" aria-label="Y channels">
-              {ys.map(({ id, ch, index }) => (
+              {ys.map(({ id, ch, slot }) => (
                 <li key={id} className="series-chip xy-ychip" title={ch.meta.label}>
                   <MarkerGlyph
                     shape={shapes.get(id) ?? 'circle'}
-                    slot={effective.colorBy === 'series' ? index : null}
+                    slot={effective.colorBy === 'series' ? slot : null}
                   />
                   <span className="series-chip-name">{ch.meta.short}</span>
                   {ch.meta.unit && <span className="series-chip-unit">{ch.meta.unit}</span>}
@@ -227,7 +230,7 @@ export function XYSidebar({ ds, ws, view, data, defaults }: XYSidebarProps) {
         <div className="xy-seg">
           <Segmented value={xy.fit} options={FIT_OPTIONS} onChange={(fit) => setXY({ fit })} ariaLabel="Fit" testId="xy-fit" />
         </div>
-        <div className={`field${xy.fit === 'none' ? ' xy-dim' : ''}`}>
+        <div className={`field${xy.fit === 'none' ? ' xy-field-off' : ''}`}>
           <span className="field-label">Fit through</span>
           <div className="xy-seg">
             <Segmented
@@ -235,6 +238,9 @@ export function XYSidebar({ ds, ws, view, data, defaults }: XYSidebarProps) {
               options={fitTargetOptions(withPoints)}
               onChange={(fitTarget) => setXY({ fitTarget })}
               ariaLabel="Fit through"
+              disabled={xy.fit === 'none'}
+              title={xy.fit === 'none' ? 'Choose a fit first' : undefined}
+              testId="xy-fit-target"
             />
           </div>
         </div>

@@ -109,6 +109,54 @@ describe('sanitizeWorkspace', () => {
     expect(ws.tracked).toEqual(['alpha,__deg'])
   })
 
+  it('keeps each channel’s colour slot, dropping a missing channel with its own', () => {
+    const ds = dataset()
+    const ws = sanitizeWorkspace(
+      {
+        version: 1,
+        panels: [
+          { id: 'p1', channelIds: ['pitch,__deg', 'missing', 'alpha,__deg'], slots: [0, 1, 2] },
+          { id: 'p2', channelIds: ['_Vind,_kias'], slots: [6] },
+        ],
+        xy: { x: 'alpha,__deg', ys: ['missing', '___cl,total', 'pitch,__deg'], ySlots: [0, 4, 2] },
+      },
+      ds,
+    )
+    expect(ws.panels.map((p) => [p.channelIds, p.slots])).toEqual([
+      [['pitch,__deg', 'alpha,__deg'], [0, 2]],
+      [['_Vind,_kias'], [6]],
+    ])
+    expect(ws.xy.ys).toEqual(['___cl,total', 'pitch,__deg'])
+    expect(ws.xy.ySlots).toEqual([4, 2])
+  })
+
+  it('re-derives missing, invalid and repeated colour slots deterministically', () => {
+    const ds = dataset()
+    const input = {
+      version: 1,
+      panels: [
+        // Saved before slots were stored: by position.
+        { id: 'p1', channelIds: ['pitch,__deg', 'alpha,__deg'] },
+        // A repeat and an invalid slot: the first keeps it, the others get the lowest free.
+        { id: 'p2', channelIds: ['pitch,__deg', 'alpha,__deg', 'elev1,__deg'], slots: [3, 3, 'red'] },
+        // A repeated channel goes with its slot; too few slots for the channels.
+        { id: 'p3', channelIds: ['alpha,__deg', 'alpha,__deg', 'pitch,__deg'], slots: [5, 1] },
+      ],
+      xy: { x: 'alpha,__deg', ys: ['___cl,total', 'pitch,__deg'], ySlots: [9, -1] },
+    }
+    const ws = sanitizeWorkspace(input, ds)
+    expect(ws.panels.map((p) => p.slots)).toEqual([[0, 1], [3, 0, 1], [5, 0]])
+    expect(ws.xy.ySlots).toEqual([0, 1])
+    expect(sanitizeWorkspace(input, ds).panels.map((p) => p.slots)).toEqual(ws.panels.map((p) => p.slots))
+  })
+
+  it('gives the default panels and X–Y the colours in order', () => {
+    const ws = defaultWorkspace(dataset())
+    expect(ws.panels.map((p) => p.slots)).toEqual([[0], [0, 1]])
+    expect(ws.xy.ySlots).toEqual([0])
+    expect(sanitizeWorkspace({ version: 1, xy: {} }, dataset()).xy.ySlots).toEqual([0])
+  })
+
   it('keeps a valid point source and time-base channel', () => {
     const ds = dataset()
     const ws = sanitizeWorkspace(

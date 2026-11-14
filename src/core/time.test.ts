@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { describeChannel } from './channels'
-import { buildDataset, computeStats } from './dataset'
+import { buildDataset } from './buildDataset'
+import { computeStats } from './dataset'
 import { parseText } from './parse'
 import { xplaneText } from './parse/fixtures'
 import {

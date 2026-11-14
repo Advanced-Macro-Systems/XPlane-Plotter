@@ -4,11 +4,12 @@
 
 import { create } from 'zustand'
 import { withDerived } from '../core/analysis/derived'
-import { buildDataset } from '../core/dataset'
+import type { buildDataset } from '../core/buildDataset'
 import { DEMO_FILE_NAME, generateDemoFlight } from '../core/demo/generateDemo'
 import { downloadText } from '../core/export/download'
 import { serializeSession, sessionFileName } from '../core/export/session'
 import { ParseError, parseFile, parseText, type RawTable } from '../core/parse'
+import { assignSlots, slotsValid } from '../core/slots'
 import type {
   Dataset,
   DerivedDef,
@@ -26,6 +27,7 @@ import {
   MAX_GROUPS,
   MAX_SERIES,
   defaultWorkspace,
+  firstSlots,
   newId,
   nextGroupSlot,
   sanitizeDerived,
@@ -44,7 +46,19 @@ export interface Toast {
   id: number
   kind: 'info' | 'success' | 'error'
   message: string
-  action?: { label: string; run: () => void }
+  action?: ToastAction
+}
+
+export interface ToastAction {
+  label: string
+  run: () => void
+  /**
+   * The file (dataset id) the action changes or shows: its toast closes when another file becomes active (opened,
+   * switched to, or this one closed), and neither its button nor Ctrl/Cmd+Z runs it for another file. An Undo always
+   * has one (given, or else the file active when it is shown); every other action about one file passes it too
+   * (Start fresh, Plot it, Show), so no action ever changes or shows a file that is no longer on screen.
+   */
+  datasetId?: string
 }
 
 export interface RecentFile {
@@ -154,12 +168,21 @@ function runToastTimer(id: number, timer: ToastTimer, ms: number): void {
   timer.handle = setTimeout(() => dismissToast(id), ms)
 }
 
-export function toast(message: string, kind: Toast['kind'] = 'info', action?: Toast['action']): void {
+/** True for an action labelled "Undo" (what Ctrl/Cmd+Z runs). */
+export function isUndoAction(action: ToastAction | undefined): action is ToastAction {
+  return action?.label.trim().toLowerCase() === 'undo'
+}
+
+export function toast(message: string, kind: Toast['kind'] = 'info', action?: ToastAction): void {
   toastCounter += 1
   const id = toastCounter
   const kept = get().toasts.slice(-(MAX_TOASTS - 1))
   for (const old of get().toasts) if (!kept.includes(old)) forgetToastTimer(old.id)
-  set({ toasts: [...kept, { id, kind, message, action }] })
+  // An Undo belongs to a file: the one it names, else the one active now.
+  const activeId = get().activeId
+  const scoped =
+    isUndoAction(action) && action.datasetId === undefined && activeId !== null ? { ...action, datasetId: activeId } : action
+  set({ toasts: [...kept, { id, kind, message, action: scoped }] })
   const timer: ToastTimer = { handle: null, due: 0, left: 0, holds: new Set() }
   toastTimers.set(id, timer)
   runToastTimer(id, timer, toastLifetime(kind, action !== undefined))
@@ -195,17 +218,36 @@ export function holdToast(id: number, reason: 'pointer' | 'focus', held: boolean
   }
 }
 
-/** Runs a toast's action (its button, or Ctrl/Cmd+Z for an Undo) and closes the toast. */
+/** Whether a toast's action may run now: one that names its file (every Undo) only while that file is the active one. */
+function actionInScope(action: ToastAction | undefined, activeId: string | null): boolean {
+  return action?.datasetId === undefined || action.datasetId === activeId
+}
+
+/**
+ * Runs a toast's action (its button, or Ctrl/Cmd+Z for an Undo) and closes the toast. An action whose file is no longer
+ * the active one only closes (it never changes or shows a file that is not on screen).
+ */
 export function runToastAction(id: number): void {
   const item = get().toasts.find((t) => t.id === id)
   dismissToast(id)
-  item?.action?.run()
+  if (item?.action && actionInScope(item.action, get().activeId)) item.action.run()
 }
 
-/** The newest toast that offers an Undo, or null: what Ctrl/Cmd+Z undoes. */
+/** The newest toast that offers an Undo for the active file, or null: what Ctrl/Cmd+Z undoes. */
 export function latestUndoToast(): Toast | null {
-  return get().toasts.findLast((t) => t.action?.label.trim().toLowerCase() === 'undo') ?? null
+  const { toasts, activeId } = get()
+  return toasts.findLast((t) => isUndoAction(t.action) && actionInScope(t.action, activeId)) ?? null
 }
+
+// An action that names its file (every Undo; Start fresh, Plot it, Show) belongs to it: when another file becomes
+// active (one opened, switched to, or the active one closed), the toasts of the others close, so neither a click nor
+// Ctrl/Cmd+Z can reach a file the user no longer sees.
+useApp.subscribe((state, previous) => {
+  if (state.activeId === previous.activeId) return
+  for (const t of state.toasts) {
+    if (!actionInScope(t.action, state.activeId)) dismissToast(t.id)
+  }
+})
 
 // ------------------------------------------------------------------ persistence (per file signature)
 
@@ -359,6 +401,30 @@ useApp.subscribe((state, previous) => {
 let loadAbort: AbortController | null = null
 let datasetCounter = 0
 
+type BuildDataset = typeof buildDataset
+
+let datasetBuilder: Promise<BuildDataset> | null = null
+
+/**
+ * The dataset builder (core/buildDataset), which reads the channel dictionary (about 200 kB): its own chunk, fetched on
+ * demand so the start page never waits for it. main.tsx asks for it before React draws the start page (it downloads
+ * while the page is drawn), and opening a file or the demo asks for it at once (it arrives while the file is read), so
+ * it is normally there before anyone needs it. A failed fetch (offline, or an old page after a redeploy) is not
+ * remembered: the next call tries again.
+ */
+export function loadDatasetBuilder(): Promise<BuildDataset> {
+  datasetBuilder ??= import('../core/buildDataset').then(
+    (module) => module.buildDataset,
+    (error: unknown) => {
+      datasetBuilder = null
+      throw new Error(
+        `part of the app could not be loaded (${error instanceof Error ? error.message : String(error)}). Reload the page and try again.`,
+      )
+    },
+  )
+  return datasetBuilder
+}
+
 /** A stored workspace this version can restore: an object with `version: 1` (the rest is sanitised). */
 function isWorkspaceV1(value: unknown): value is Record<string, unknown> & { version: 1 } {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
@@ -366,12 +432,13 @@ function isWorkspaceV1(value: unknown): value is Record<string, unknown> & { ver
 }
 
 function addDataset(
+  build: BuildDataset,
   raw: RawTable,
   name: string,
   size: number,
   opts: { restore: boolean; initial?: (ds: Dataset) => Workspace },
 ): void {
-  const base = buildDataset(raw, { name, size })
+  const base = build(raw, { name, size })
   if (base.rowCount === 0) throw new ParseError(`${name} has a header but no data rows.`)
   datasetCounter += 1
   const id = `ds${datasetCounter}`
@@ -417,13 +484,16 @@ function addDataset(
 }
 
 /**
- * The restore toast's "Start fresh": the file's default workspace, without formulas. Built out here so the toast holds
- * only the id and that workspace: a closure made inside addDataset would keep the whole Dataset alive (a function's
- * closures share one context) for as long as anything holds the toast, also after the file is closed.
+ * The restore toast's "Start fresh": the file's default workspace, without formulas. It belongs to that file
+ * (`datasetId`): the toast closes once another file becomes active, so it never resets a file that is off screen.
+ * Built out here so the toast holds only the id and that workspace: a closure made inside addDataset would keep the
+ * whole Dataset alive (a function's closures share one context) for as long as anything holds the toast, also after
+ * the file is closed.
  */
 function startFreshAction(id: string, fresh: Workspace): NonNullable<Toast['action']> {
   return {
     label: 'Start fresh',
+    datasetId: id,
     run: () => {
       const current = get().datasets.find((d) => d.id === id)
       if (!current) return
@@ -439,6 +509,8 @@ function startFreshAction(id: string, fresh: Workspace): NonNullable<Toast['acti
 /** Opens one or more files (each becomes a dataset; the last opened is active). */
 export async function openFiles(files: FileList | File[]): Promise<void> {
   const list = Array.from(files)
+  // Fetched while the file is read (see loadDatasetBuilder); awaited only once the file is parsed.
+  if (list.length) void loadDatasetBuilder().catch(() => undefined)
   for (const file of list) {
     loadAbort?.abort()
     const controller = new AbortController()
@@ -457,12 +529,18 @@ export async function openFiles(files: FileList | File[]): Promise<void> {
         controller.signal,
       )
       set({ loading: { name: file.name, phase: 'building', progress: 1 } })
+      const build = await loadDatasetBuilder()
       // Let the progress bar paint before the (synchronous) build.
       await new Promise((resolve) => setTimeout(resolve, 0))
-      addDataset(raw, file.name, file.size, { restore: true })
-      // The Overview leads with the file's data-quality notes; on another tab, say the first one in a toast.
-      const warning = get().datasets.at(-1)?.warnings[0]
-      if (warning && get().tab !== 'overview') toast(warning, 'info', { label: 'Show', run: () => setTab('overview') })
+      if (controller.signal.aborted) continue
+      addDataset(build, raw, file.name, file.size, { restore: true })
+      // The Overview leads with the file's data-quality notes; on another tab, say the first one in a toast (it shows
+      // this file's Overview, so it closes once another file is on screen).
+      const opened = get().datasets.at(-1)
+      const warning = opened?.warnings[0]
+      if (opened && warning && get().tab !== 'overview') {
+        toast(warning, 'info', { label: 'Show', datasetId: opened.id, run: () => setTab('overview') })
+      }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') continue
       const message =
@@ -490,10 +568,13 @@ export function cancelLoading(): void {
 /** Loads the synthetic demo flight. */
 export async function openDemo(): Promise<void> {
   set({ loading: { name: DEMO_FILE_NAME, phase: 'building', progress: 1 } })
+  // Fetched while the demo flight is generated (see loadDatasetBuilder).
+  void loadDatasetBuilder().catch(() => undefined)
   await new Promise((resolve) => setTimeout(resolve, 0))
   try {
     const text = generateDemoFlight()
-    addDataset(parseText(text), DEMO_FILE_NAME, text.length, { restore: false, initial: demoWorkspace })
+    const build = await loadDatasetBuilder()
+    addDataset(build, parseText(text), DEMO_FILE_NAME, text.length, { restore: false, initial: demoWorkspace })
     toast(
       'Demo flight loaded with its trim points and dynamic-mode windows marked. It is synthetic: explore with it, never use it as flight-test evidence.',
       'info',
@@ -574,25 +655,50 @@ export function setTimeBase(timeBase: TimeBaseId): void {
   updateWorkspace((ws) => ({ ...ws, timeBase }))
 }
 
+/**
+ * A panel's channels (at most MAX_SERIES) with their colour slots after an edit: the slots given when they fit the
+ * channels, else each channel that was in `before` keeps its slot and a new one gets the lowest free slot.
+ */
+function slottedPanel(panel: PanelConfig, before: PanelConfig | undefined): PanelConfig {
+  const channelIds = panel.channelIds.slice(0, MAX_SERIES)
+  const given = panel.slots?.slice(0, MAX_SERIES)
+  const slots = slotsValid(given, channelIds.length)
+    ? given
+    : assignSlots(channelIds, before?.channelIds ?? [], before?.slots)
+  return { ...panel, channelIds, slots }
+}
+
+/**
+ * Replaces the panel stack. A panel whose slots do not fit its channels (one edited by a view without them) gets them
+ * from the panel with the same id before the change: channels keep their colours, new ones take the lowest free slot.
+ */
 export function setPanels(panels: PanelConfig[]): void {
-  updateWorkspace((ws) => ({ ...ws, panels }))
+  updateWorkspace((ws) => ({
+    ...ws,
+    panels: panels.map((p) => slottedPanel(p, ws.panels.find((old) => old.id === p.id))),
+  }))
 }
 
 export function addPanel(channelIds: string[]): string {
   const id = newId('p')
-  updateWorkspace((ws) => ({ ...ws, panels: [...ws.panels, { id, channelIds: channelIds.slice(0, MAX_SERIES) }] }))
+  const ids = channelIds.slice(0, MAX_SERIES)
+  updateWorkspace((ws) => ({ ...ws, panels: [...ws.panels, { id, channelIds: ids, slots: firstSlots(ids.length) }] }))
   return id
 }
 
+/**
+ * Changes a panel. New channelIds keep the colour slot of every channel that stays (removing one never re-colours the
+ * others) and give each channel added the lowest slot free in the panel, unless the patch brings its own slots.
+ */
 export function updatePanel(id: string, patch: Partial<Omit<PanelConfig, 'id'>>): void {
   updateWorkspace((ws) => ({
     ...ws,
     panels: ws.panels
-      .map((p) =>
-        p.id === id
-          ? { ...p, ...patch, channelIds: (patch.channelIds ?? p.channelIds).slice(0, MAX_SERIES) }
-          : p,
-      )
+      .map((p) => {
+        if (p.id !== id) return p
+        if (!patch.channelIds) return { ...p, ...patch }
+        return slottedPanel({ ...p, ...patch, slots: patch.slots }, p)
+      })
       .filter((p) => p.channelIds.length > 0),
   }))
 }
@@ -666,11 +772,17 @@ export function removeGroup(id: string): void {
   })
 }
 
+/**
+ * Changes the X–Y settings. New ys keep the colour slot of every Y channel that stays and give each one added the
+ * lowest free slot (colour follows the channel, not its place in the list), unless the patch brings its own ySlots.
+ */
 export function setXY(patch: Partial<XYConfig>): void {
-  updateWorkspace((ws) => ({
-    ...ws,
-    xy: { ...ws.xy, ...patch, ys: (patch.ys ?? ws.xy.ys).slice(0, MAX_SERIES) },
-  }))
+  updateWorkspace((ws) => {
+    const ys = (patch.ys ?? ws.xy.ys).slice(0, MAX_SERIES)
+    const given = (patch.ySlots ?? (patch.ys ? undefined : ws.xy.ySlots))?.slice(0, MAX_SERIES)
+    const ySlots = slotsValid(given, ys.length) ? given : assignSlots(ys, ws.xy.ys, ws.xy.ySlots)
+    return { ...ws, xy: { ...ws.xy, ...patch, ys, ySlots } }
+  })
 }
 
 export function setModes(patch: Partial<ModesConfig>): void {
@@ -681,15 +793,34 @@ export function setTracked(ids: string[]): void {
   updateWorkspace((ws) => ({ ...ws, tracked: [...new Set(ids)] }))
 }
 
-/** Re-evaluates every formula on the active dataset; returns the per-formula errors. */
-function applyDerived(defs: DerivedDef[]): { id: string; message: string }[] {
+/**
+ * The workspace with every use of channel `from` (panels, X–Y axes, test-point columns, the Modes channel) moved to
+ * `to` in place: each keeps its position, and so its colour slot (PanelConfig.slots, XYConfig.ySlots are parallel).
+ */
+function renameChannel(ws: Workspace, from: string, to: string): Workspace {
+  const swap = (ids: string[]) => ids.map((x) => (x === from ? to : x))
+  return {
+    ...ws,
+    panels: ws.panels.map((p) => ({ ...p, channelIds: swap(p.channelIds) })),
+    xy: { ...ws.xy, x: ws.xy.x === from ? to : ws.xy.x, ys: swap(ws.xy.ys) },
+    tracked: swap(ws.tracked),
+    modes: { ...ws.modes, channelId: ws.modes.channelId === from ? to : ws.modes.channelId },
+  }
+}
+
+/**
+ * Re-evaluates every formula on the active dataset; returns the per-formula errors. `rename` (a formula whose id
+ * changed with its name) moves its uses to the new id first: sanitising drops ids the dataset no longer has, so
+ * without it a renamed formula would leave its panels and the X–Y plot, and lose its colour slot.
+ */
+function applyDerived(defs: DerivedDef[], rename?: { from: string; to: string }): { id: string; message: string }[] {
   const { activeId, datasets, workspaces } = get()
   const ds = getActiveDataset()
   if (!activeId || !ds || !workspaces[activeId]) return [{ id: '', message: 'No file is open.' }]
   const { dataset, errors } = withDerived(ds, defs)
   const failed = new Set(errors.map((e) => e.id))
   const kept = defs.filter((d) => !failed.has(d.id))
-  const ws = workspaces[activeId]
+  const ws = rename ? renameChannel(workspaces[activeId], rename.from, rename.to) : workspaces[activeId]
   set({
     datasets: datasets.map((d) => (d.id === activeId ? dataset : d)),
     // Formulas that failed are not saved; channel references to removed formulas are dropped by sanitizing.
@@ -699,7 +830,8 @@ function applyDerived(defs: DerivedDef[]): { id: string; message: string }[] {
 }
 
 /**
- * Adds (or, when `replaceId` is given, replaces) a formula channel. The id is "fx:<slug>" of the name, made unique.
+ * Adds (or, when `replaceId` is given, replaces) a formula channel. The id is "fx:<slug>" of the name, made unique; a
+ * formula renamed to a new id keeps its panels, X–Y place, test-point column and Modes channel, with its colour slots.
  * Returns the new channel id, or an error message (and changes nothing) when the formula does not evaluate.
  */
 export function saveDerived(
@@ -720,18 +852,8 @@ export function saveDerived(
   const trial = withDerived(ds, defs)
   const error = trial.errors.find((e) => e.id === id)
   if (error) return { ok: false, error: error.message }
-  applyDerived(defs)
-  if (replaceId && replaceId !== id) {
-    // Point panels / plots that used the old id at the renamed channel.
-    const swap = (ids: string[]) => ids.map((x) => (x === replaceId ? id : x))
-    updateWorkspace((w) => ({
-      ...w,
-      panels: w.panels.map((p) => ({ ...p, channelIds: swap(p.channelIds) })),
-      xy: { ...w.xy, x: w.xy.x === replaceId ? id : w.xy.x, ys: swap(w.xy.ys) },
-      tracked: swap(w.tracked),
-      modes: { ...w.modes, channelId: w.modes.channelId === replaceId ? id : w.modes.channelId },
-    }))
-  }
+  // A renamed formula (its id follows its name) stays where it was used, under its new id.
+  applyDerived(defs, replaceId && replaceId !== id ? { from: replaceId, to: id } : undefined)
   return { ok: true, id }
 }
 

@@ -108,12 +108,12 @@ describe('the built-in presets', () => {
     expect(lateral?.summary).toBe('')
   })
 
-  it('makes panel configs with fresh ids', () => {
+  it('makes panel configs with fresh ids and the colours in order', () => {
     let n = 0
     const panels = presetPanels([['a', 'b'], ['c']], () => `p${(n += 1)}`)
     expect(panels).toEqual([
-      { id: 'p1', channelIds: ['a', 'b'] },
-      { id: 'p2', channelIds: ['c'] },
+      { id: 'p1', channelIds: ['a', 'b'], slots: [0, 1] },
+      { id: 'p2', channelIds: ['c'], slots: [0] },
     ])
   })
 })

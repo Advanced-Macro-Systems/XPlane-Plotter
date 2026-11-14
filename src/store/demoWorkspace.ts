@@ -69,6 +69,7 @@ export function demoWorkspace(ds: Dataset): Workspace {
       ...base.xy,
       x: '___cl,total',
       ys: [elevator],
+      ySlots: [0],
       source: 'points',
       groups: [TRIM_GROUP.id],
       colorBy: 'group',

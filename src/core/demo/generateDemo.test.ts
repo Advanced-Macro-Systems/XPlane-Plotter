@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { fitFirstOrder, fitOscillation } from '../analysis/modes'
-import { buildDataset } from '../dataset'
+import { buildDataset } from '../buildDataset'
 import { parseText } from '../parse'
 import {
   DEMO_AIRCRAFT,

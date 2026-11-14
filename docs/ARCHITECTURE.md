@@ -10,17 +10,23 @@ src/
   core/                 pure TypeScript, no React, unit-tested with Vitest (node)
     types.ts            the shared data model (Dataset, Channel, Workspace, ...)
     parse/              X-Plane Data.txt + CSV/TSV parsing; streaming parser shared by worker and parseText()
-    dataset.ts          RawTable -> Dataset (channel ids, meanings, stats, time source, segments, signature)
+    buildDataset.ts     RawTable -> Dataset (channel ids, meanings, stats, time source, segments, signature);
+                        loaded on demand with the channel dictionary (see "App shell")
+    dataset.ts          channelById, computeStats, the signature hash: the light helpers every part uses
     channelStats.ts     computeStats, import-free so the parser worker sends each column's stats with it
     time.ts             time source choice, gap-collapsed elapsed time, segments, time axes, formatting
     channels/           what each header token means (see "Channel meanings"), data-set groups, recording guide
     analysis/           stats (window stats unwrap headings across north), polynomial fits, mode identification,
                         formula language, derived channels, decimation
-    export/             CSV, session JSON, MATLAB script generator, downloads
+    export/             CSV, session JSON, MATLAB script generator (its xppStats unwraps the same headings),
+                        downloads
+    slots.ts            colour slots of a channel list (a panel, the X–Y Y channels): colour follows the channel
     demo/               synthetic demo flight in Data.txt format
-  charts/               ECharts setup (tree-shaken), theme from CSS tokens, <EChart>, image export, number formats
+  charts/               ECharts setup (tree-shaken), theme from CSS tokens, <EChart>, image export, number formats,
+                        text widths as drawn (textWidth.ts, for labels laid out before ECharts draws them)
     options/            pure option builders, one file per chart kind: overview (glance stack, ground track),
-                        timePanel (one Time-history panel), timeStack (the stacked export figure), xy, modes
+                        timePanel (one Time-history panel), timeStack (the stacked export figure: the test-point
+                        names are measured as drawn in the browser, estimated in tests), xy, modes
   store/                zustand app state + actions (app.ts), workspace defaults/sanitising (defaults.ts),
                         the demo's marked manoeuvres (demoWorkspace.ts)
   components/           shared view parts: ChannelPicker, ExportMenu, Segmented, Sparkline, channelGroups, view.css
@@ -57,7 +63,7 @@ src/
   confidence) and `groupRows.ts` (the 173 X-Plane 12 Data Output rows in display order, then legacy rows) were built
   once from research notes kept outside the repo and are edited by hand. `overrides.ts` holds the curated labels,
   shorts (≤ 16 characters, unique in a row) and pitfalls; `entries.ts` builds the lookup tables once, on first use.
-- `describeHeader(headers)` gives every column its meaning at once (`dataset.ts` calls it once per file). X-Plane
+- `describeHeader(headers)` gives every column its meaning at once (`buildDataset.ts` calls it once per file). X-Plane
   writes each ticked row as one contiguous block of tokens, so the header is read as a sequence of row blocks: a
   token several rows write (`_side,___lb` for aero / gear / engine forces, `____P,deg/s` for body rates and the motion
   platform, `_wind,__dir` for METAR layers and local wind) takes the meaning of its block, not of its occurrence
@@ -88,6 +94,16 @@ sits in `channelsRequest` until the Channels view takes it). Pure helpers may be
   view inside a `ViewBoundary`, or `Landing` when no file is open. Each view is a lazy chunk, prefetched when the
   browser is idle, so the start page paints without ECharts and a view that fails to load only breaks its own tab
   (a stale chunk after a redeploy offers "Reload the page").
+- The start page loads only `index` (the shell), `react` and `app-core` (store, parsing, demo, formulas, sessions,
+  exports: the modules it shares with the tabs; `vite.config.ts` names the chunks with code-splitting groups). The
+  channel dictionary (`channel-dictionary`, about 200 kB) is not on its critical path: only `core/buildDataset.ts`
+  and the tabs read it. The store loads the builder with `loadDatasetBuilder()` (a dynamic import, started when a
+  file or the demo opens, in parallel with reading it), and `main.tsx` asks for it before React draws the start
+  page: it downloads while the page is drawn, when the network is otherwise idle, so it is normally there before
+  anyone opens a file, even the demo clicked the moment the page appears. Not a `<link rel="prefetch">` in
+  `index.html`: that starts sooner but shares the connection with the page's own scripts, and on slow links it
+  delayed the start page (by about 0.1 s at 4 Mbit/s and 0.25 s at 1.6 Mbit/s). Code on the start page's path
+  imports the light channel modules (`channels/title`, `guide`, `groups`, `alias`), never the `core/channels` barrel.
 - There is one hidden `<input type="file" data-testid="file-input">`; every Open file action goes through
   `filePicker.openFilePicker()`. `fileActions.ts` routes picked or dropped files (`DropOverlay`): logs open as
   datasets, session `.json` files load onto the open log. Whole-file exports (MATLAB, CSV, session) live there too.
@@ -122,9 +138,14 @@ unit-tested modules next to them:
   and take the theme as input, so the same builder serves the screen and the export.
 - Colours come from CSS tokens through `charts/theme.ts` (`useChartTheme()`); exports use the fixed `paper` theme.
 - **Categorical colours**: 8 validated slots in fixed order (`--series-1..8`). A chart never shows more than 8
-  series; colour follows the entity (a channel keeps its slot when others are removed); a test-point group's colour
-  is its `slot`, and a file has at most `MAX_GROUPS` (8) groups (`addGroup` refuses a 9th). Scatter plots with more
-  than 3 colour classes add a second encoding (marker shape).
+  series; colour follows the entity. A channel's slot is stored next to it (`PanelConfig.slots`, `XYConfig.ySlots`,
+  parallel to the ids; `core/slots.ts`): it keeps it while it stays in its panel or in the X–Y Y list, a channel
+  added takes the lowest slot free there (`updatePanel`, `setPanels`, `setXY` and `pickChannel` assign them;
+  presets start at 0, 1, 2 ...), and `sanitizeWorkspace` re-derives missing, invalid or repeated slots
+  deterministically. Every renderer reads the stored slot: panel lines and chips, the time-history figure, the X–Y
+  series, means, fits, legend and Y chips, and the MATLAB script (`panelSlot`, `xy.ySlot`). A test-point group's
+  colour is its `slot`, and a file has at most `MAX_GROUPS` (8) groups (`addGroup` refuses a 9th). Scatter plots
+  with more than 3 colour classes add a second encoding (marker shape, also by slot).
 - **No dual y-axes.** Channels with different units go in separate stacked panels (Time history) — panels share the
   x-axis, zoom and crosshair.
 - **Linked charts.** With `<EChart group>` (echarts.connect) each linked chart snaps its crosshair and tooltip to its
@@ -147,7 +168,9 @@ unit-tested modules next to them:
   only as a solid fill (primary buttons, the open tab's underline, the logo). Dark ("night cockpit"): navy-black
   panels, cyan accent, amber caution, green OK, red errors only, a magenta time-history selection. Toggles that are
   on (`aria-pressed`) use the info tint (`--info-soft` / `--info-text`: blue in light, cyan in dark); a segmented
-  control's choice is `--segment-on` (a raised white pill in light, lit cyan in dark). Text on a solid `--accent` or
+  control's choice is `--segment-on` (a raised white pill in light, lit cyan in dark); a disabled one
+  (`<Segmented disabled>`, e.g. X–Y "Fit through" without a fit) still shows its choice, as `--segment-off` (a flat
+  neutral pill with muted text, never the "on" colours), and its other options are muted. Text on a solid `--accent` or
   `--info` uses `--text-on-accent` / `--text-on-info`. No decorative gradients, glows or red washes.
 - Components: `.btn` (`-primary`, `-ghost`, `-outline`, `-sm`, `-icon`), `.segmented`, `.input`, `.select`,
   `.chip` + `.slot-N`, `.badge`, `.card`, `.callout`, `.table` in a `.table-wrap`, `.eyebrow` (mono uppercase labels),
@@ -163,7 +186,10 @@ unit-tested modules next to them:
   for a panel of controls or a form. A popup closes when focus leaves it and stays inside the window on phones.
 - Toasts: one with an action (Undo, Start fresh) shows 20 s, and its time stops while the pointer is over it or focus
   is in it; Ctrl/Cmd+Z runs the newest Undo (not while typing or in a dialog). Give undoable actions a toast whose
-  action label is "Undo".
+  action label is "Undo" and pass the file it changes (`datasetId`; by default the active one): an Undo belongs to
+  its file, so it closes when another file becomes active (opened, switched to, or its file closed), and neither its
+  button nor Ctrl/Cmd+Z ever runs it for another file. Every other action about one file (Start fresh, Plot it, Show,
+  Open X–Y plot) passes its `datasetId` too, so it closes the same way and never changes or shows a file off screen.
 
 ## Testing
 

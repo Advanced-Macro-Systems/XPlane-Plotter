@@ -123,6 +123,12 @@ export interface TimeAxis {
 export interface PanelConfig {
   id: string
   channelIds: string[]
+  /**
+   * Categorical colour slot (0..7) of each channel, parallel to channelIds: a channel keeps its colour while it stays
+   * in the panel, and a channel added gets the lowest free slot (core/slots.ts). Absent or invalid (older files):
+   * re-derived, 0, 1, 2, ... by position.
+   */
+  slots?: number[]
   /** Force the y-axis to include zero */
   yZero?: boolean
 }
@@ -160,6 +166,8 @@ export interface XYConfig {
   x: string | null
   /** Up to 8 channel ids on the vertical axis (one shared axis: pick channels with the same unit) */
   ys: string[]
+  /** Colour slot (0..7) of each Y channel, parallel to ys: kept while the channel stays (see PanelConfig.slots) */
+  ySlots?: number[]
   /** Which rows: the whole file, the Time-history zoom range, or the visible test points */
   source: 'all' | 'view' | 'points'
   /**

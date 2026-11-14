@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildDataset } from '../core/dataset'
+import { buildDataset } from '../core/buildDataset'
 import { parseText } from '../core/parse'
 import { xplaneText } from '../core/parse/fixtures'
 import {
   addGroup,
+  addPanel,
+  closeDataset,
   dismissToast,
   getWorkspace,
   holdToast,
@@ -11,10 +13,16 @@ import {
   openFiles,
   readRecent,
   runToastAction,
+  saveDerived,
+  setActive,
+  setModes,
+  setPanels,
   setTab,
   setTracked,
+  setXY,
   toast,
   toastLifetime,
+  updatePanel,
   useApp,
 } from './app'
 import { MAX_GROUPS } from './defaults'
@@ -296,6 +304,27 @@ describe('restoring a saved workspace', () => {
     expect(useApp.getState().datasets[0].channels.some((c) => c.id === 'fx:b')).toBe(false)
   })
 
+  it('never starts a file fresh once another file is on screen: its Start fresh closes with it', async () => {
+    const text = logText()
+    const key = `xpp:ws:${signatureOf(text)}`
+    const points = [
+      { id: 't1', name: 'Steady 1', groupId: 'g1', start: 2, end: 9 },
+      { id: 't2', name: 'Steady 2', groupId: 'g1', start: 12, end: 19 },
+    ]
+    storage.setItem(key, JSON.stringify({ version: 1, points }))
+    await openFiles([fileOf(text, 'First.txt')])
+    const first = useApp.getState().activeId!
+    const restore = useApp.getState().toasts.find((t) => t.action?.label === 'Start fresh')!
+    expect(restore.action?.datasetId).toBe(first)
+
+    await openFiles([fileOf(logText(50), 'Second.txt')])
+    expect(shown()).not.toContain(restore.message)
+    runToastAction(restore.id)
+    await saved()
+    expect(useApp.getState().workspaces[first].points).toHaveLength(2)
+    expect((JSON.parse(storage.getItem(key) ?? '{}') as { points?: unknown[] }).points).toHaveLength(2)
+  })
+
   it('opens the file fresh, and says so, when the saved workspace is not one this version reads', async () => {
     for (const junk of [{ version: 2, points: [] }, [1, 2], 'text', 42]) {
       resetStore()
@@ -329,6 +358,8 @@ describe('opening files', () => {
     await openFiles([fileOf(logText(50, true), 'Second.txt')])
     const note = useApp.getState().toasts.find((t) => t.message === useApp.getState().datasets[1].warnings[0])
     expect(note?.action?.label).toBe('Show')
+    // It shows this file's notes: it belongs to the file.
+    expect(note?.action?.datasetId).toBe(useApp.getState().datasets[1].id)
     runToastAction(note!.id)
     expect(useApp.getState().tab).toBe('overview')
   })
@@ -341,5 +372,187 @@ describe('opening files', () => {
     expect(getWorkspace()?.groups).toHaveLength(MAX_GROUPS)
     expect(ninth).toBe(ids.at(-1))
     expect(useApp.getState().toasts.at(-1)?.message).toMatch(/at most 8 test-point groups/)
+  })
+})
+
+describe('colour slots follow the channel', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', new MemoryStorage())
+    resetStore()
+  })
+  afterEach(() => {
+    resetStore()
+    vi.unstubAllGlobals()
+  })
+
+  /** Ten synthetic channels in degrees (one unit, so any of them can share a panel or the X–Y Y axis). */
+  const TOKENS = Array.from({ length: 10 }, (_, i) => `chan${i},__deg`)
+  const wideLog = () =>
+    xplaneText(
+      ['_totl,_time', ...TOKENS],
+      Array.from({ length: 30 }, (_, r) => [r * 0.1, ...TOKENS.map((_, i) => i + r / 10)]),
+    )
+  const panelOf = (id: string) => getWorkspace()?.panels.find((p) => p.id === id)
+  const [a, b, c, d, e] = TOKENS
+
+  it('keeps the others’ slots when a channel leaves a panel, and gives a channel added the lowest free slot', async () => {
+    await openFiles([fileOf(wideLog())])
+    const id = addPanel([a, b, c])
+    expect(panelOf(id)?.slots).toEqual([0, 1, 2])
+    updatePanel(id, { channelIds: [b, c] })
+    expect(panelOf(id)).toMatchObject({ channelIds: [b, c], slots: [1, 2] })
+    updatePanel(id, { channelIds: [b, c, d] })
+    expect(panelOf(id)?.slots).toEqual([1, 2, 0])
+    updatePanel(id, { channelIds: [b, c, d, e] })
+    expect(panelOf(id)?.slots).toEqual([1, 2, 0, 3])
+    // Other edits leave the slots alone.
+    updatePanel(id, { yZero: true })
+    expect(panelOf(id)?.slots).toEqual([1, 2, 0, 3])
+    // A panel edited without slots (a view's own edit) gets them from the same panel before the change.
+    const before = getWorkspace()?.panels ?? []
+    setPanels(before.map((p) => (p.id === id ? { id, channelIds: [c, e] } : p)))
+    expect(panelOf(id)?.slots).toEqual([2, 3])
+    // Undo puts the panels back with their slots.
+    setPanels(before)
+    expect(panelOf(id)?.slots).toEqual([1, 2, 0, 3])
+  })
+
+  it('never gives a panel more than 8 channels, nor two channels the same slot', async () => {
+    await openFiles([fileOf(wideLog())])
+    const id = addPanel(TOKENS)
+    expect(panelOf(id)?.channelIds).toEqual(TOKENS.slice(0, 8))
+    expect(panelOf(id)?.slots).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+    updatePanel(id, { channelIds: [...TOKENS.slice(1, 8), TOKENS[9], TOKENS[8]] })
+    expect(panelOf(id)?.channelIds).toEqual([...TOKENS.slice(1, 8), TOKENS[9]])
+    expect(panelOf(id)?.slots).toEqual([1, 2, 3, 4, 5, 6, 7, 0])
+  })
+
+  it('does the same for the X–Y Y channels; a list given with its own slots keeps them', async () => {
+    await openFiles([fileOf(wideLog())])
+    setXY({ x: a, ys: [b, c, d] })
+    const xy = () => getWorkspace()!.xy
+    expect(xy().ySlots).toEqual([0, 1, 2])
+    setXY({ ys: [c, d] })
+    expect(xy().ySlots).toEqual([1, 2])
+    setXY({ ys: [c, d, e] })
+    expect(xy().ySlots).toEqual([1, 2, 0])
+    setXY({ title: 'Trim curve' })
+    expect(xy().ySlots).toEqual([1, 2, 0])
+    // A preset brings the colours in order; slots that do not fit the list are re-derived instead.
+    setXY({ ys: [e, b], ySlots: [0, 1] })
+    expect(xy().ySlots).toEqual([0, 1])
+    setXY({ ys: [e, b, c], ySlots: [0, 0, 9] })
+    expect(xy().ySlots).toEqual([0, 1, 2])
+  })
+
+  it('keeps a renamed formula where it is used, with its colour slot', async () => {
+    await openFiles([fileOf(wideLog())])
+    const expression = 'chan0_deg + chan1_deg'
+    expect(saveDerived({ name: 'Angle sum', unit: 'deg', expression }, 'angle_sum')).toEqual({ ok: true, id: 'fx:angle_sum' })
+    const fx = 'fx:angle_sum'
+    // "Plot it" (a panel of its own), a panel it shares, the X–Y Y list, a test-point column and Modes.
+    const solo = addPanel([fx])
+    const shared = addPanel([a, fx, b])
+    updatePanel(shared, { channelIds: [fx, b] })
+    setXY({ x: c, ys: [d, fx, e] })
+    setXY({ ys: [fx, e] })
+    setTracked([fx, a])
+    setModes({ channelId: fx })
+    expect(panelOf(shared)?.slots).toEqual([1, 2])
+    expect(getWorkspace()?.xy.ySlots).toEqual([1, 2])
+
+    const renamed = saveDerived({ name: 'Angle total', unit: 'deg', expression }, 'angle_total', fx)
+    expect(renamed).toEqual({ ok: true, id: 'fx:angle_total' })
+    const ws = getWorkspace()!
+    expect(ws.derived.map((def) => def.id)).toEqual(['fx:angle_total'])
+    expect(panelOf(solo)).toMatchObject({ channelIds: ['fx:angle_total'], slots: [0] })
+    expect(panelOf(shared)).toMatchObject({ channelIds: ['fx:angle_total', b], slots: [1, 2] })
+    expect(ws.xy).toMatchObject({ x: c, ys: ['fx:angle_total', e], ySlots: [1, 2] })
+    expect(ws.tracked).toEqual(['fx:angle_total', a])
+    expect(ws.modes.channelId).toBe('fx:angle_total')
+
+    // On the X axis too.
+    setXY({ x: 'fx:angle_total' })
+    saveDerived({ name: 'Angle total 2', unit: 'deg', expression }, 'angle_total_2', 'fx:angle_total')
+    expect(getWorkspace()?.xy).toMatchObject({ x: 'fx:angle_total_2', ys: ['fx:angle_total_2', e], ySlots: [1, 2] })
+  })
+})
+
+describe('undo toasts belong to their file', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', new MemoryStorage())
+    resetStore()
+  })
+  afterEach(() => {
+    resetStore()
+    vi.unstubAllGlobals()
+  })
+
+  it('closes an Undo when another file opens, so neither a click nor Ctrl/Cmd+Z reaches the file off screen', async () => {
+    await openFiles([fileOf(logText(40), 'First.txt')])
+    const first = useApp.getState().activeId!
+    const undone: string[] = []
+    toast('Deleted test point “A”.', 'info', { label: 'Undo', run: () => undone.push('A') })
+    toast('Could not save in this browser.', 'error', { label: 'Save session', run: () => undone.push('session') })
+    // Scoped to the file active when it was shown.
+    expect(useApp.getState().toasts.find((t) => t.message.startsWith('Deleted'))?.action?.datasetId).toBe(first)
+    expect(latestUndoToast()?.message).toBe('Deleted test point “A”.')
+
+    await openFiles([fileOf(logText(50), 'Second.txt')])
+    expect(useApp.getState().activeId).not.toBe(first)
+    expect(shown()).not.toContain('Deleted test point “A”.')
+    // An action that names no file is not an Undo, and it stays.
+    expect(shown()).toContain('Could not save in this browser.')
+    expect(latestUndoToast()).toBeNull()
+
+    // An Undo of the new file is the one Ctrl/Cmd+Z runs; going back to the first file closes it in turn.
+    toast('Removed the panel.', 'info', { label: 'Undo', run: () => undone.push('panel') })
+    const second = useApp.getState().activeId!
+    expect(latestUndoToast()?.action?.datasetId).toBe(second)
+    setActive(first)
+    expect(latestUndoToast()).toBeNull()
+    expect(shown()).not.toContain('Removed the panel.')
+    expect(undone).toEqual([])
+  })
+
+  it('never runs, nor offers to Ctrl/Cmd+Z, an Undo of a file that is not the active one', async () => {
+    await openFiles([fileOf(logText(40), 'First.txt')])
+    const first = useApp.getState().activeId!
+    await openFiles([fileOf(logText(50), 'Second.txt')])
+    const undone: string[] = []
+    // Shown for the first file while the second is active (a late toast): it never counts as the newest Undo.
+    toast('Deleted “A”.', 'info', { label: 'Undo', datasetId: first, run: () => undone.push('A') })
+    toast('Deleted “B”.', 'info', { label: 'Undo', run: () => undone.push('B') })
+    expect(latestUndoToast()?.message).toBe('Deleted “B”.')
+    const stale = useApp.getState().toasts.find((t) => t.message === 'Deleted “A”.')!
+    runToastAction(stale.id)
+    expect(undone).toEqual([])
+    expect(shown()).not.toContain('Deleted “A”.')
+    runToastAction(latestUndoToast()!.id)
+    expect(undone).toEqual(['B'])
+  })
+
+  it('closes the Undo of a file that is closed', async () => {
+    await openFiles([fileOf(logText(40), 'First.txt')])
+    const first = useApp.getState().activeId!
+    toast('Deleted “A”.', 'info', { label: 'Undo', run: () => {} })
+    closeDataset(first)
+    expect(latestUndoToast()).toBeNull()
+    expect(shown()).not.toContain('Deleted “A”.')
+  })
+
+  it('treats any other action that names its file (Plot it, Show) the same way, without making it an Undo', async () => {
+    await openFiles([fileOf(logText(40), 'First.txt')])
+    const first = useApp.getState().activeId!
+    const ran: string[] = []
+    toast('Saved “Speed sum”.', 'success', { label: 'Plot it', datasetId: first, run: () => ran.push('plot') })
+    const plot = useApp.getState().toasts.at(-1)!
+    // Ctrl/Cmd+Z only ever undoes.
+    expect(latestUndoToast()).toBeNull()
+    await openFiles([fileOf(logText(50), 'Second.txt')])
+    expect(shown()).not.toContain('Saved “Speed sum”.')
+    // A click that was on its way (the toast was on screen a moment ago) does nothing either.
+    runToastAction(plot.id)
+    expect(ran).toEqual([])
   })
 })

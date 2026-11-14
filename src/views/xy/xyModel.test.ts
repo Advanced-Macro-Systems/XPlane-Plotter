@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildDataset } from '../../core/dataset'
+import { buildDataset } from '../../core/buildDataset'
 import { generateDemoFlight } from '../../core/demo/generateDemo'
 import { parseText } from '../../core/parse'
 import { timeAxis } from '../../core/time'
@@ -104,6 +104,49 @@ describe('buildXYData', () => {
     expect(data.series).toHaveLength(1)
     expect(data.series[0].slot).toBe(1)
     expect(data.series[0].y.index).toBe(1)
+  })
+
+  it('colours and shapes each Y channel by its stored slot, so removing another Y never re-colours it', () => {
+    const before = buildXYData({
+      ds,
+      ...wsArgs(workspace({ xy: xyConfig({ ys: ['y', 'y2', 'z', 'x'], ySlots: [0, 1, 2, 3] }) })),
+      view: null,
+      axis,
+      lines: false,
+    })
+    // 'y' removed: the store keeps the others' slots (store/app setXY).
+    const after = buildXYData({
+      ds,
+      ...wsArgs(workspace({ xy: xyConfig({ ys: ['y2', 'z', 'x'], ySlots: [1, 2, 3] }) })),
+      view: null,
+      axis,
+      lines: false,
+    })
+    const look = (data: XYData) => new Map(data.series.map((s) => [s.y.ch.id, `${s.slot}:${s.shape}`]))
+    for (const id of ['y2', 'z', 'x']) expect(look(after).get(id)?.split(':')[0]).toBe(look(before).get(id)?.split(':')[0])
+    expect(after.legend.map((l) => l.slot)).toEqual([1, 2, 3])
+    // Shapes tell the Y channels apart when colour shows the groups: by slot as well.
+    const grouped = buildXYData({
+      ds,
+      ...wsArgs(
+        workspace({
+          points: [{ id: 't1', name: 'A', groupId: 'g1', start: 0, end: 4 }],
+          xy: xyConfig({ source: 'points', colorBy: 'group', ys: ['y2', 'z'], ySlots: [4, 2] }),
+        }),
+      ),
+      view: null,
+      axis,
+      lines: false,
+    })
+    expect(grouped.series.map((s) => s.shape)).toEqual([MARKER_SHAPES[4], MARKER_SHAPES[2]])
+    expect(grouped.means.map((m) => [m.y.ch.id, m.y.slot])).toEqual([
+      ['y2', 4],
+      ['z', 2],
+    ])
+    expect(grouped.legend.filter((l) => l.kind === 'shape').map((l) => [l.slot, l.shape])).toEqual([
+      [4, MARKER_SHAPES[4]],
+      [2, MARKER_SHAPES[2]],
+    ])
   })
 
   it('plots only the zoom range with the view source', () => {

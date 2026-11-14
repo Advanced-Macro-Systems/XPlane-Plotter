@@ -44,6 +44,7 @@ export function AddPointDialog({ ds, ws, axis, range, onClose }: AddPointDialogP
     const datasetId = ds.id
     toast(`Saved test point “${pointName}”.`, 'success', {
       label: 'Undo',
+      datasetId,
       run: () => {
         if (getActiveDataset()?.id !== datasetId) return
         removePoint(id)

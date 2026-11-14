@@ -4,7 +4,7 @@
 import { InfoIcon, ShieldCheckIcon } from '@primer/octicons-react'
 import { useRef, useState } from 'react'
 import { Segmented } from '../components/Segmented'
-import { loggingGuide, recordingSteps } from '../core/channels'
+import { loggingGuide, recordingSteps } from '../core/channels/guide'
 import { Modal } from '../ui/Modal'
 import { GuideText } from './GuideText'
 import { BEFORE_EVERY_RUN } from './helpContent'

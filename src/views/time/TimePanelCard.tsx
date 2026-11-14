@@ -38,6 +38,7 @@ import { ChannelPicker } from '../../components/ChannelPicker'
 import { scrollBehavior } from '../../components/hooks'
 import { channelTitle } from '../../core/channels'
 import { channelById } from '../../core/dataset'
+import { sanitizeSlots } from '../../core/slots'
 import type { Channel, Dataset, PanelConfig, RowRange, TimeAxis } from '../../core/types'
 import { movePanel, setSelection, updatePanel, useApp } from '../../store/app'
 import { Dropdown } from '../../ui/Dropdown'
@@ -138,15 +139,14 @@ export const TimePanelCard = memo(function TimePanelCard({
   const geometry = panelGeometry({ lane: lane !== null, bottom })
   const chartHeight = geometry.top + plotHeight + geometry.bottom
 
-  // The colour slot is the channel's position in the panel's list, so it never depends on which channels exist.
-  const entries = useMemo<Entry[]>(
-    () =>
-      panel.channelIds.slice(0, MAX_PANEL_SERIES).flatMap((id, slot) => {
-        const ch = channelById(ds, id)
-        return ch ? [{ ch, slot }] : []
-      }),
-    [ds, panel.channelIds],
-  )
+  // Each channel's colour is its stored slot: it follows the channel, so removing one never re-colours the others.
+  const entries = useMemo<Entry[]>(() => {
+    const slots = sanitizeSlots(panel.slots, panel.channelIds.length)
+    return panel.channelIds.slice(0, MAX_PANEL_SERIES).flatMap((id, i) => {
+      const ch = channelById(ds, id)
+      return ch ? [{ ch, slot: slots[i] }] : []
+    })
+  }, [ds, panel.channelIds, panel.slots])
   // Each line is drawn from the coarsest min/max level of detail that still resolves the visible window, so a zoom
   // step costs what the screen shows, not the length of the log. The level is re-chosen as the zoom changes; the
   // option (and ECharts' work) changes only when the level does.

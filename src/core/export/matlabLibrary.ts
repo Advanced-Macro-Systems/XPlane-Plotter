@@ -433,14 +433,55 @@ end`,
   },
   {
     name: 'xppStats',
-    deps: [],
-    code: String.raw`function s = xppStats(x)
+    deps: ['xppUnwrapDegrees'],
+    code: String.raw`function s = xppStats(x, isHeading)
 %XPPSTATS [mean, std, min, max, n] of the finite samples of x (std: sample standard deviation, n - 1).
+%   isHeading true: x is a direction in degrees that wraps at north (heading, track, wind direction), so, as in the
+%   app (core/analysis/windowStats.ts), the window is unwrapped first and a turn through 360/0 deg reads as a turn,
+%   not as a 180 deg average with a huge spread. The mean is then given in 0-360 deg, and min and max move with it.
+heading = nargin > 1 && isHeading;
+if heading
+    x = xppUnwrapDegrees(x);
+end
 x = x(isfinite(x));
 if isempty(x)
     s = [NaN, NaN, NaN, NaN, 0];
-else
-    s = [mean(x), std(x), min(x), max(x), numel(x)];
+    return
+end
+s = [mean(x), std(x), min(x), max(x), numel(x)];
+if heading
+    shift = mod(s(1), 360) - s(1);
+    s([1 3 4]) = s([1 3 4]) + shift;
+end
+end`,
+  },
+  {
+    name: 'xppUnwrapDegrees',
+    deps: [],
+    code: String.raw`function u = xppUnwrapDegrees(x)
+%XPPUNWRAPDEGREES x (degrees) with the 0/360 wraps taken out, exactly as the app does: +/-360 wherever consecutive
+%   finite samples jump by more than 180 deg. Samples without a value stay NaN and do not break the run.
+u = x(:);
+offset = 0;
+previous = NaN;
+for k = 1:numel(u)
+    if ~isfinite(u(k))
+        u(k) = NaN;
+        continue
+    end
+    value = u(k) + offset;
+    if isfinite(previous)
+        while value - previous > 180
+            offset = offset - 360;
+            value = value - 360;
+        end
+        while value - previous < -180
+            offset = offset + 360;
+            value = value + 360;
+        end
+    end
+    u(k) = value;
+    previous = value;
 end
 end`,
   },

@@ -1,6 +1,8 @@
 // Window statistics that know about directions: a heading, track or wind direction wraps at north (0/360°), so its
 // mean ± σ over a window is taken on the unwrapped values. Shared by the Test points table, the selection bar, the X–Y
-// means and the test-point CSV / Copy table, so they all give the same numbers. Pure: no React, no DOM.
+// means and the test-point CSV / Copy table, so they all give the same numbers; the MATLAB script mirrors it
+// (export/matlab.ts marks the channels isDirectionChannel picks, matlabLibrary's xppStats / xppUnwrapDegrees unwrap
+// them the same way). Pure: no React, no DOM.
 
 import type { Channel } from '../types'
 import { driftPerMinute, rangeStats, type RangeStats } from './stats'

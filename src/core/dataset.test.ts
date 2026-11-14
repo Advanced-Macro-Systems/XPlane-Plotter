@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { describeChannel } from './channels'
-import { buildDataset, channelById, computeStats, fnv1a32 } from './dataset'
+import { buildDataset } from './buildDataset'
+import { channelById, computeStats, fnv1a32 } from './dataset'
 import { parseText, type RawTable } from './parse'
 import { XPLANE_737_TEXT, xplaneText } from './parse/fixtures'
 

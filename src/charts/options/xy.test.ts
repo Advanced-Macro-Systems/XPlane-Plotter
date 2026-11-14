@@ -24,7 +24,7 @@ function model(count: number, colorBy: XYData['effective']['colorBy']): XYData {
   }
   const series: XYSampleSeries = {
     key: '*|y',
-    y: { ch, index: 0 },
+    y: { ch, index: 0, slot: 0 },
     group: null,
     slot: 0,
     shape: 'circle',
@@ -36,7 +36,7 @@ function model(count: number, colorBy: XYData['effective']['colorBy']): XYData {
   }
   return {
     x: { ...ch, id: 'x', token: 'x' },
-    ys: [{ ch, index: 0 }],
+    ys: [{ ch, index: 0, slot: 0 }],
     effective: {
       source: 'all',
       sourceNote: '',

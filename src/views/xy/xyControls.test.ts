@@ -157,7 +157,7 @@ describe('focusExtent', () => {
 
   it('says what is off the axes, whether the fit left it out, and how to see it', () => {
     const focus = { x: null, y: [0, 1] as [number, number], outside: 297, xFar: null, yFar: -5.007e8 }
-    const data = { x: channel('alpha', [0], 'α', 'deg'), ys: [{ ch: channel('cl', [0], 'CL', ''), index: 0 }] }
+    const data = { x: channel('alpha', [0], 'α', 'deg'), ys: [{ ch: channel('cl', [0], 'CL', ''), index: 0, slot: 0 }] }
     const fitted = [{ fit: {} as never, target: 'samples' as const, excluded: 297 }]
     expect(focusNote(focus, data, false, fitted)).toBe(
       '297 extreme samples (CL down to −5.007×10⁸) are off the axes and out of the fit, so the rest can be read.',

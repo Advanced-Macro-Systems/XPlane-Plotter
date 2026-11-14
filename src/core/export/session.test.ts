@@ -46,6 +46,23 @@ describe('serializeSession / parseSession', () => {
     expect(file.workspace).toEqual(ws)
   })
 
+  it('keeps each channel’s colour slot (panels and X–Y), and reads a file without them', () => {
+    const ws: Workspace = makeWorkspace({
+      panels: [{ id: 'p1', channelIds: ['_Vind,_kias', 'fx:q'], slots: [3, 0] }],
+    })
+    ws.xy = { ...ws.xy, ys: ['_Vind,_kias', 'fx:q'], ySlots: [1, 6] }
+    const file = parseSession(serializeSession(ds, ws))
+    expect(file.workspace.panels[0].slots).toEqual([3, 0])
+    expect(file.workspace.xy.ySlots).toEqual([1, 6])
+    // A session saved before slots were stored: none come back (sanitizeWorkspace re-derives them by position).
+    const older = sessionObject()
+    delete (workspaceOf(older).panels as Record<string, unknown>[])[0].slots
+    delete (workspaceOf(older).xy as Record<string, unknown>).ySlots
+    const parsed = parseSession(JSON.stringify(older))
+    expect(parsed.workspace.panels[0]).not.toHaveProperty('slots')
+    expect(parsed.workspace.xy).not.toHaveProperty('ySlots')
+  })
+
   it('names the file after the log: its stem, made safe, then .xpp-session.json', () => {
     expect(sessionFileName('Data_run1.txt')).toBe('Data_run1.xpp-session.json')
     expect(sessionFileName('Flight 2 / CG aft.csv')).toBe('Flight_2_CG_aft.xpp-session.json')
@@ -118,6 +135,9 @@ describe('parseSession errors', () => {
       [(f) => ((workspaceOf(f).points as Record<string, unknown>[])[0].hidden = 'yes'), /workspace\.points\[0\]\.hidden must be true or false/],
       [(f) => ((workspaceOf(f).groups as Record<string, unknown>[])[0].slot = 8), /workspace\.groups\[0\]\.slot must be a colour slot/],
       [(f) => ((workspaceOf(f).panels as Record<string, unknown>[])[0].channelIds = ['a', 3]), /workspace\.panels\[0\]\.channelIds\[1\] must be text/],
+      [(f) => ((workspaceOf(f).panels as Record<string, unknown>[])[0].slots = [0, 8]), /workspace\.panels\[0\]\.slots\[1\] must be a colour slot/],
+      [(f) => ((workspaceOf(f).panels as Record<string, unknown>[])[0].slots = 'blue'), /workspace\.panels\[0\]\.slots must be a list/],
+      [(f) => ((workspaceOf(f).xy as Record<string, unknown>).ySlots = [1.5]), /workspace\.xy\.ySlots\[0\] must be a whole number/],
       [(f) => ((workspaceOf(f).derived as Record<string, unknown>[])[0].id = 'q'), /workspace\.derived\[0\]\.id must start with "fx:"/],
       [(f) => ((workspaceOf(f).xy as Record<string, unknown>).fit = 'poly9'), /workspace\.xy\.fit must be one of "none", "linear", "poly2", "poly3"/],
       [(f) => ((workspaceOf(f).xy as Record<string, unknown>).x = 7), /workspace\.xy\.x must be a channel id or null/],

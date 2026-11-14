@@ -82,6 +82,9 @@
   --segment-on: var(--surface); /* the chosen option of a segmented control: a raised white pill */
   --segment-on-text: var(--text);
   --segment-on-shadow: var(--shadow-card);
+  --segment-off: var(--surface); /* the choice of a disabled segmented control: a flat pill, muted, never "on" */
+  --segment-off-text: var(--text-subtle);
+  --segment-off-shadow: inset 0 0 0 1px var(--border);
 
   /* Charts (the series slots are validated with the dataviz palette checker against the chart surface and pass every
      hard gate; light slots 3, 4, 5 sit under 3:1 contrast, so every chart keeps a legend, a tooltip and a table view) */
@@ -188,6 +191,9 @@
   --segment-on: rgba(34, 195, 238, 0.14); /* a lit cyan segment */
   --segment-on-text: #7fe3fa;
   --segment-on-shadow: inset 0 0 0 1px rgba(34, 195, 238, 0.35);
+  --segment-off: var(--btn-bg-hover); /* the choice of a disabled control: unlit, a neutral grey-blue pill */
+  --segment-off-text: var(--text-subtle);
+  --segment-off-shadow: inset 0 0 0 1px var(--border-strong);
 
   /* Charts: the series slots are validated on --chart-surface; the selection is magenta, zoom windows cyan */
   --chart-surface: #0d1421;
@@ -479,7 +485,7 @@ code,
   white-space: nowrap;
   cursor: pointer;
 }
-.segmented-option:hover {
+.segmented-option:hover:not(:disabled) {
   color: var(--text);
 }
 .segmented-option[aria-pressed='true'],
@@ -487,6 +493,20 @@ code,
   background: var(--segment-on);
   color: var(--segment-on-text);
   box-shadow: var(--segment-on-shadow);
+}
+/* A choice that cannot be made now: muted, no hover. A control that does not apply at all (disabled) still shows its
+   choice, as a flat neutral pill without the "on" colours (no lit cyan in dark, no raised pill in light). */
+.segmented-option:disabled {
+  color: var(--text-subtle);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.segmented-option[aria-pressed='true']:disabled,
+.segmented-option[aria-checked='true']:disabled {
+  background: var(--segment-off);
+  color: var(--segment-off-text);
+  box-shadow: var(--segment-off-shadow);
+  opacity: 1;
 }
 
 /* ---------------------------------------------------------------- form controls */

@@ -1,6 +1,8 @@
 // The whole Time-history panel stack as ONE publication figure (PNG / SVG export): a grid per panel, stacked, sharing
 // the x range; only the bottom axis has tick labels and the axis title; a legend above each panel with two or more
-// series; test-point bands and segment boundaries as on screen. Build it with readChartTheme('paper').
+// series; test-point bands and segment boundaries as on screen, the test points' names in a lane above the first
+// panel (staggered in rows where names would touch, so overlapping or adjacent points never print over each other).
+// Build it with readChartTheme('paper').
 // OWNER: time-view agent. Pure (no DOM): unit-tested in timeStack.test.ts.
 
 import type { EChartsOption } from '../echarts'
@@ -38,7 +40,16 @@ export interface TimeStackInput {
   width?: number
   /** Height of each plot area in px (default 150) */
   plotHeight?: number
+  /**
+   * Measures text as the browser draws it (the image export passes charts/textWidth canvasTextWidth): each test-point
+   * name then gets its real width, so a band only a little wider than its name keeps it. Without it (tests, no DOM),
+   * or when it gives no number, names get a generous estimate (labelWidth).
+   */
+  measureText?: TextMeasure
 }
+
+/** Width (px) of `text` drawn in `font`, a CSS font such as "11px 'Geist Variable', sans-serif" (NaN: unknown). */
+export type TextMeasure = (text: string, font: string) => number
 
 export interface TimeStackFigure {
   option: EChartsOption
@@ -60,25 +71,84 @@ export const STACK_LAYOUT = {
   bottom: 56,
 } as const
 
-/** Plot-area tops and the figure height for panels with / without a legend row. */
+/**
+ * The lane of test-point names above the first plot: px per row of names, the most rows, the space between the
+ * nearest row and the plot, and the least space between two names in a row.
+ */
+export const LABEL_LANE = { row: 16, rows: 3, pad: 4, gap: 6 } as const
+
+/**
+ * Plot-area tops and the figure height for panels with / without a legend row, and `lane` px of test-point names
+ * between the first panel's legend row and its plot.
+ */
 export function timeStackLayout(
   legends: readonly boolean[],
   plotHeight: number = STACK_LAYOUT.plot,
+  lane = 0,
 ): { tops: number[]; height: number } {
   const tops: number[] = []
   let cursor = STACK_LAYOUT.top
   legends.forEach((legend, i) => {
     if (i > 0) cursor += STACK_LAYOUT.gap
     if (legend) cursor += STACK_LAYOUT.legend
+    if (i === 0) cursor += lane
     tops.push(cursor)
     cursor += plotHeight
   })
   return { tops, height: Math.round(cursor + STACK_LAYOUT.bottom) }
 }
 
-/** Rough label width (px) for deciding whether a band is wide enough to name. */
-function textWidth(text: string, fontSize: number): number {
-  return text.length * fontSize * 0.56 + 8
+/**
+ * Width (px) a name is given: its text as drawn in `fontSize` px `font` when `measure` can tell (the browser export),
+ * else a generous estimate (Geist averages about 0.5 em a character, capitals and W/M more), plus a little room either
+ * side. Names are truncated to it, so a name never reaches further than the layout below assumes.
+ */
+export function labelWidth(text: string, fontSize: number, font?: string, measure?: TextMeasure): number {
+  const measured = measure && font ? measure(text, `${fontSize}px ${font}`) : Number.NaN
+  return (Number.isFinite(measured) && measured >= 0 ? measured : text.length * fontSize * 0.56) + 8
+}
+
+/** A test point's band and name in the figure, px from the plot's left edge. */
+export interface BandLabelInput {
+  left: number
+  right: number
+  /** The name's width (labelWidth) */
+  width: number
+}
+
+/**
+ * Lays out the test-point names above the first plot. Each name is centred on its band and written only when it fits
+ * inside the band; it goes in the lowest row (0 = nearest the plot) where it clears the names already there by `gap`
+ * px, so names of overlapping or adjacent points are staggered instead of printed over each other. A name that fits
+ * in none of `maxRows` rows is left out; its band stays. Returns each band's row, or null for no name.
+ */
+export function bandLabelRows(
+  bands: readonly BandLabelInput[],
+  maxRows: number = LABEL_LANE.rows,
+  gap: number = LABEL_LANE.gap,
+): (number | null)[] {
+  const out: (number | null)[] = bands.map(() => null)
+  /** The right edge of the last name in each row */
+  const rowEnds: number[] = []
+  const names = bands
+    .map((b, i) => ({ i, left: (b.left + b.right - b.width) / 2, width: b.width, span: b.right - b.left }))
+    .filter((n) => n.width <= n.span)
+    // Left to right (first-fit by left edge needs the fewest rows); a wider band first where two names start together.
+    .sort((a, b) => a.left - b.left || b.span - a.span || a.i - b.i)
+  for (const name of names) {
+    let row = rowEnds.findIndex((end) => name.left >= end + gap)
+    if (row < 0 && rowEnds.length < maxRows) row = rowEnds.push(-Infinity) - 1
+    if (row < 0) continue
+    rowEnds[row] = name.left + name.width
+    out[name.i] = row
+  }
+  return out
+}
+
+/** Height (px) of the name lane for these rows: nothing when no name is written. */
+export function labelLaneHeight(rows: readonly (number | null)[]): number {
+  const used = rows.reduce<number>((n, row) => (row === null ? n : Math.max(n, row + 1)), 0)
+  return used > 0 ? used * LABEL_LANE.row + LABEL_LANE.pad : 0
 }
 
 export function timeStackOption(input: TimeStackInput): TimeStackFigure {
@@ -87,8 +157,6 @@ export function timeStackOption(input: TimeStackInput): TimeStackFigure {
   const plotHeight = input.plotHeight ?? STACK_LAYOUT.plot
   const panels = input.panels.filter((p) => p.series.length > 0)
   const legends = panels.map((p) => Math.min(p.series.length, MAX_PANEL_SERIES) >= 2)
-  const { tops, height } = timeStackLayout(legends, plotHeight)
-  const last = panels.length - 1
   const plotWidth = width - STACK_LAYOUT.left - STACK_LAYOUT.right
   const pxPerX = x.max > x.min ? plotWidth / (x.max - x.min) : 0
   const small = theme.fontSize - 2
@@ -97,6 +165,16 @@ export function timeStackOption(input: TimeStackInput): TimeStackFigure {
     .map((b) => ({ ...b, x0: Math.max(b.x0, x.min), x1: Math.min(b.x1, x.max) }))
     .filter((b) => b.x1 > b.x0)
   const boundaries = input.boundaries.filter((b) => b.x > x.min && b.x < x.max)
+  // The names above the first plot, staggered in rows where they would touch.
+  const labels = bands.map((b) => ({
+    left: (b.x0 - x.min) * pxPerX,
+    right: (b.x1 - x.min) * pxPerX,
+    width: labelWidth(b.name, small, theme.font, input.measureText),
+  }))
+  const labelRows = bandLabelRows(labels)
+  const lane = labelLaneHeight(labelRows)
+  const { tops, height } = timeStackLayout(legends, plotHeight, lane)
+  const last = panels.length - 1
 
   const grids = panels.map((_, i) => ({
     left: STACK_LAYOUT.left,
@@ -139,24 +217,27 @@ export function timeStackOption(input: TimeStackInput): TimeStackFigure {
                 silent: true,
                 animation: false,
                 emphasis: { disabled: true },
-                data: bands.map((b) => {
-                  const bandPx = (b.x1 - b.x0) * pxPerX
-                  const named = i === 0 && bandPx >= textWidth(b.name, small)
+                data: bands.map((b, k) => {
+                  const row = i === 0 ? labelRows[k] : null
                   return [
                     {
                       xAxis: b.x0,
                       itemStyle: { color: b.color, opacity: BAND_OPACITY },
-                      label: {
-                        show: named,
-                        formatter: b.name,
-                        position: 'insideTop',
-                        distance: 4,
-                        color: theme.textMuted,
-                        fontFamily: theme.font,
-                        fontSize: small,
-                        width: Math.max(0, bandPx - 6),
-                        overflow: 'truncate',
-                      },
+                      label:
+                        row === null
+                          ? { show: false }
+                          : {
+                              show: true,
+                              formatter: b.name,
+                              // Above the plot, centred on the band, in its row of the name lane.
+                              position: 'top',
+                              distance: LABEL_LANE.pad + row * LABEL_LANE.row,
+                              color: theme.textMuted,
+                              fontFamily: theme.font,
+                              fontSize: small,
+                              width: labels[k].width,
+                              overflow: 'truncate',
+                            },
                     },
                     { xAxis: b.x1 },
                   ]
@@ -195,7 +276,8 @@ export function timeStackOption(input: TimeStackInput): TimeStackFigure {
       ? [
           {
             show: true,
-            top: tops[i] - STACK_LAYOUT.legend + 4,
+            // Above the first panel's name lane.
+            top: tops[i] - (i === 0 ? lane : 0) - STACK_LAYOUT.legend + 4,
             right: STACK_LAYOUT.right,
             orient: 'horizontal',
             icon: 'rect',

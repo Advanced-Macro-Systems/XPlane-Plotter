@@ -23,7 +23,7 @@ interface SavePointDialogProps {
 
 export function SavePointDialog({ ds, ws, axis, range, onClose }: SavePointDialogProps) {
   const formId = useId()
-  // The same suggestion as Test points' "Add from selection": the mean airspeed ("242 KIAS"), else "Point N".
+  // The same suggestion as Test points' "Add from selection": the mean airspeed ("250 KIAS"), else "Point N".
   const [defaultName] = useState(() => suggestPointName(ds, range, ws.points.map((p) => p.name)))
   const [name, setName] = useState(defaultName)
   const [groupId, setGroupId] = useState(() => defaultGroupId(ws.groups, lastGroup.get(ds.id)))
@@ -41,6 +41,7 @@ export function SavePointDialog({ ds, ws, axis, range, onClose }: SavePointDialo
     const datasetId = ds.id
     toast(`Saved test point “${pointName}”.`, 'success', {
       label: 'Undo',
+      datasetId,
       run: () => {
         if (getActiveDataset()?.id !== datasetId) return
         removePoint(id)

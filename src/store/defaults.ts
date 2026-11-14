@@ -1,6 +1,7 @@
 // Default workspace for a freshly opened file, and sanitising a saved/imported workspace against a dataset.
 
 import { channelById } from '../core/dataset'
+import { sanitizeSlots } from '../core/slots'
 import type {
   Dataset,
   DerivedDef,
@@ -47,14 +48,19 @@ const PANEL_PRESETS: string[][] = [
   ['thro1,handl', 'thro2,handl'],
 ]
 
+/** Colour slots 0, 1, 2, ... for a new list of `count` channels. */
+export function firstSlots(count: number): number[] {
+  return sanitizeSlots(null, count)
+}
+
 export function defaultPanels(ds: Dataset): PanelConfig[] {
   const panels: PanelConfig[] = []
   for (const preset of PANEL_PRESETS) {
     const ids = preset.filter((id) => exists(ds, id))
-    if (ids.length) panels.push({ id: newId('p'), channelIds: ids })
+    if (ids.length) panels.push({ id: newId('p'), channelIds: ids, slots: firstSlots(ids.length) })
   }
   if (!panels.length) {
-    for (const id of plainCandidates(ds).slice(0, 3)) panels.push({ id: newId('p'), channelIds: [id] })
+    for (const id of plainCandidates(ds).slice(0, 3)) panels.push({ id: newId('p'), channelIds: [id], slots: [0] })
   }
   return panels
 }
@@ -76,6 +82,7 @@ export function defaultXY(ds: Dataset): XYConfig {
   return {
     x,
     ys,
+    ySlots: firstSlots(ys.length),
     source: 'all',
     style: 'points',
     colorBy: 'series',
@@ -150,9 +157,10 @@ function int(value: unknown): number | null {
 }
 
 /**
- * Makes a saved or imported workspace safe for this dataset: unknown channel ids dropped, row ranges clamped,
- * at least one group, colour slots in range, invalid fields replaced by defaults. Apply derived channels to the
- * dataset BEFORE calling this, so formula channels count as existing.
+ * Makes a saved or imported workspace safe for this dataset: unknown channel ids dropped (with their colour slots, so
+ * the other channels keep theirs), row ranges clamped, at least one group, colour slots in range and one per channel
+ * of a panel or of the X–Y Y list, invalid fields replaced by defaults. Apply derived channels to the dataset BEFORE
+ * calling this, so formula channels count as existing.
  */
 export function sanitizeWorkspace(input: unknown, ds: Dataset): Workspace {
   const fallback = defaultWorkspace(ds)
@@ -176,10 +184,10 @@ export function sanitizeWorkspace(input: unknown, ds: Dataset): Workspace {
 
   const panels: PanelConfig[] = Array.isArray(input.panels)
     ? input.panels.filter(isObject).flatMap((p) => {
-        const channelIds = Array.isArray(p.channelIds)
-          ? [...new Set(p.channelIds.filter((id): id is string => exists(ds, id as string)))].slice(0, MAX_SERIES)
+        const { ids: channelIds, slots } = channelList(p.channelIds, p.slots, ds)
+        return channelIds.length
+          ? [{ id: uniqueId(p.id, 'p'), channelIds, slots, yZero: p.yZero === true || undefined }]
           : []
-        return channelIds.length ? [{ id: uniqueId(p.id, 'p'), channelIds, yZero: p.yZero === true || undefined }] : []
       })
     : fallback.panels
 
@@ -220,11 +228,13 @@ export function sanitizeWorkspace(input: unknown, ds: Dataset): Workspace {
   const derived = sanitizeDerived(input.derived)
 
   const xyIn = isObject(input.xy) ? input.xy : {}
+  const ys = Array.isArray(xyIn.ys)
+    ? channelList(xyIn.ys, xyIn.ySlots, ds)
+    : { ids: fallback.xy.ys, slots: firstSlots(fallback.xy.ys.length) }
   const xy: XYConfig = {
     x: exists(ds, xyIn.x as string) ? (xyIn.x as string) : fallback.xy.x,
-    ys: Array.isArray(xyIn.ys)
-      ? [...new Set(xyIn.ys.filter((id): id is string => exists(ds, id as string)))].slice(0, MAX_SERIES)
-      : fallback.xy.ys,
+    ys: ys.ids,
+    ySlots: ys.slots,
     source: oneOf(xyIn.source, ['all', 'view', 'points'] as const, 'all'),
     ...xyGroups(xyIn.groups, groupIds),
     style: oneOf(xyIn.style, ['points', 'lines', 'both'] as const, 'points'),
@@ -276,6 +286,24 @@ export function sanitizeDerived(input: unknown): DerivedDef[] {
     seen.add(id)
     return [{ id, name, unit: str(d.unit, '').slice(0, 24), expression }]
   })
+}
+
+/**
+ * A stored channel list (panel channels, X–Y Y channels) for this dataset with its colour slots: the channels that
+ * exist, the first of a repeat, at most MAX_SERIES. A channel left out takes its slot with it, so the others keep
+ * theirs; missing, invalid or repeated slots are re-derived (sanitizeSlots).
+ */
+function channelList(ids: unknown, slots: unknown, ds: Dataset): { ids: string[]; slots: number[] } {
+  if (!Array.isArray(ids)) return { ids: [], slots: [] }
+  const stored: readonly unknown[] = Array.isArray(slots) ? slots : []
+  const kept: string[] = []
+  const keptSlots: unknown[] = []
+  ids.forEach((id: unknown, i) => {
+    if (kept.length >= MAX_SERIES || typeof id !== 'string' || !exists(ds, id) || kept.includes(id)) return
+    kept.push(id)
+    keptSlots.push(stored[i])
+  })
+  return { ids: kept, slots: sanitizeSlots(keptSlots, kept.length) }
 }
 
 /** XYConfig.groups kept only when it names existing groups (absent = every group). */

@@ -168,6 +168,8 @@ function ChannelsWorkspace({ ds, ws }: { ds: Dataset; ws: Workspace }) {
     }
     toast(`Saved “${name}”. It is now a channel you can plot, under Formulas in every channel list.`, 'success', {
       label: 'Plot it',
+      // This file's formula: the toast closes once another file is on screen (that file has no such channel).
+      datasetId: ds.id,
       run: () => {
         addPanel([id])
         setTab('time')
@@ -587,7 +589,11 @@ function RowMenu({
         disabled={onY || yFull}
         onSelect={run(() => {
           setXY({ ys: [...ys, ch.id] })
-          toast(`Added ${title} to the X–Y plot’s Y axis.`, 'success', { label: 'Open X–Y plot', run: () => setTab('xy') })
+          toast(`Added ${title} to the X–Y plot’s Y axis.`, 'success', {
+            label: 'Open X–Y plot',
+            datasetId: ds.id,
+            run: () => setTab('xy'),
+          })
         })}
       />
       <MenuItem
@@ -717,6 +723,7 @@ function FormulasSection({
       : `Deleted “${def.name}”.`
     toast(message, 'info', {
       label: 'Undo',
+      datasetId: activeId ?? undefined,
       run: () => {
         if (useApp.getState().activeId !== activeId) {
           toast('Switch back to that file to undo.', 'error')

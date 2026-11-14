@@ -149,7 +149,7 @@ export function resolvePresets(ds: Dataset): ResolvedPreset[] {
   })
 }
 
-/** Panel configs for resolved channel lists, with fresh ids. */
+/** Panel configs for resolved channel lists, with fresh ids and colour slots 0, 1, 2, ... (a fresh stack). */
 export function presetPanels(panels: readonly string[][], makeId: () => string): PanelConfig[] {
-  return panels.map((channelIds) => ({ id: makeId(), channelIds: [...channelIds] }))
+  return panels.map((channelIds) => ({ id: makeId(), channelIds: [...channelIds], slots: channelIds.map((_, i) => i) }))
 }

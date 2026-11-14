@@ -4,7 +4,7 @@
 // Without it the suite is skipped.
 
 import { describe, expect, it } from 'vitest'
-import { buildDataset } from '../dataset'
+import { buildDataset } from '../buildDataset'
 import { timeBases } from '../time'
 import { createStreamingParser, parseFile, parseText, type RawTable } from './index'
 

@@ -17,6 +17,7 @@ export function applyPreset(resolved: ResolvedPreset, ws: Workspace): string | n
   setPanels(panels)
   toast(`${resolved.preset.name}: ${panels.length} panel${panels.length === 1 ? '' : 's'}.`, 'success', {
     label: 'Undo',
+    datasetId: datasetId ?? undefined,
     run: () => {
       if (useApp.getState().activeId === datasetId) setPanels(previous)
     },
@@ -33,6 +34,7 @@ export function removePanelWithUndo(panelId: string, message = 'Removed the pane
   if (!previous) return
   toast(message, 'info', {
     label: 'Undo',
+    datasetId: datasetId ?? undefined,
     run: () => {
       if (useApp.getState().activeId === datasetId) setPanels(previous)
     },

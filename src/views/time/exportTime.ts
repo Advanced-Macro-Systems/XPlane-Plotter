@@ -5,9 +5,17 @@ import { channelTitle } from '../../core/channels'
 import { channelById } from '../../core/dataset'
 import { datasetCsv } from '../../core/export/csv'
 import { downloadText, safeFilename } from '../../core/export/download'
+import { sanitizeSlots } from '../../core/slots'
 import type { Channel, Dataset, RowRange, TimeAxis, Workspace } from '../../core/types'
 import { exportOptionImage } from '../../charts/exportChart'
-import { timeStackOption, type StackPanelInput } from '../../charts/options/timeStack'
+import { chartFontsReady } from '../../charts/fonts'
+import {
+  timeStackOption,
+  type StackPanelInput,
+  type TextMeasure,
+  type TimeStackFigure,
+} from '../../charts/options/timeStack'
+import { canvasTextWidth } from '../../charts/textWidth'
 import { readChartTheme, seriesColor } from '../../charts/theme'
 import { plottedIds } from './panelEdit'
 import {
@@ -34,16 +42,38 @@ export function stackYName(channels: readonly Channel[]): string {
   return units.size === 1 && unit ? `[${unit}]` : ''
 }
 
-export interface TimeImageRequest {
+export interface TimeFigureRequest {
   ds: Dataset
   ws: Workspace
   axis: TimeAxis
   frame: XFrame
   window: XWindow
+  /** Measures the test-point names as drawn (TimeStackInput.measureText); the image export passes canvasTextWidth */
+  measureText?: TextMeasure
+}
+
+export interface TimeImageRequest extends TimeFigureRequest {
   format: 'png' | 'svg'
 }
 
-export async function exportTimeImage({ ds, ws, axis, frame, window, format }: TimeImageRequest): Promise<void> {
+export async function exportTimeImage({ format, ...request }: TimeImageRequest): Promise<void> {
+  // The test-point names are laid out at their drawn widths: measured once the chart fonts are in.
+  await chartFontsReady()
+  const figure = timeFigure({ ...request, measureText: canvasTextWidth })
+  if (!figure) return
+  await exportOptionImage(figure.option, {
+    format,
+    width: figure.width,
+    height: figure.height,
+    filename: `${fileStem(request.ds)}_time_history`,
+  })
+}
+
+/**
+ * The panel stack over the zoom window as one figure in the paper theme (null without a channel to draw): each line
+ * in its channel's colour slot, the test points as neutral bands with their names, the segment boundaries. Pure.
+ */
+export function timeFigure({ ds, ws, axis, frame, window, measureText }: TimeFigureRequest): TimeStackFigure | null {
   const theme = readChartTheme('paper')
   const breaks = segmentBreaks(ds.segments)
   const [first, end] = windowToRows(axis, frame, window)
@@ -51,8 +81,10 @@ export async function exportTimeImage({ ds, ws, axis, frame, window, format }: T
   const lo = Math.max(0, first - 1)
   const hi = Math.min(ds.rowCount, end + 1)
   const panels: StackPanelInput[] = ws.panels.flatMap((panel) => {
+    // Each channel in its stored colour slot, as on screen.
+    const slots = sanitizeSlots(panel.slots, panel.channelIds.length)
     const entries = panel.channelIds
-      .map((id, slot) => ({ ch: channelById(ds, id), slot }))
+      .map((id, i) => ({ ch: channelById(ds, id), slot: slots[i] }))
       .filter((e): e is { ch: Channel; slot: number } => e.ch !== undefined)
     if (!entries.length) return []
     return [
@@ -67,8 +99,8 @@ export async function exportTimeImage({ ds, ws, axis, frame, window, format }: T
       },
     ]
   })
-  if (!panels.length) return
-  const figure = timeStackOption({
+  if (!panels.length) return null
+  return timeStackOption({
     theme,
     panels,
     x: {
@@ -89,12 +121,7 @@ export async function exportTimeImage({ ds, ws, axis, frame, window, format }: T
         name: p.name,
       })),
     plotHeight: panels.length <= 3 ? 170 : panels.length <= 5 ? 140 : 112,
-  })
-  await exportOptionImage(figure.option, {
-    format,
-    width: figure.width,
-    height: figure.height,
-    filename: `${fileStem(ds)}_time_history`,
+    measureText,
   })
 }
 

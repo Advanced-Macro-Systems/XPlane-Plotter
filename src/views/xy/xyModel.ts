@@ -7,6 +7,7 @@ import { channelTitle } from '../../core/channels'
 import { channelById } from '../../core/dataset'
 import { evalPoly, polyFit, type PolyFit } from '../../core/analysis/fit'
 import type { RangeStats } from '../../core/analysis/stats'
+import { sanitizeSlots } from '../../core/slots'
 import type { Channel, Dataset, PointGroup, RowRange, TestPoint, TimeAxis, Workspace, XYConfig } from '../../core/types'
 import { windowStats } from '../points/pointsModel'
 
@@ -81,8 +82,13 @@ export function effectiveXY(
 
 export interface XYChannel {
   ch: Channel
-  /** Position in XYConfig.ys: the colour slot when colouring by series (kept when other channels are missing) */
+  /** Position in XYConfig.ys */
   index: number
+  /**
+   * The channel's stored colour slot (XYConfig.ySlots): its colour when colouring by series and its marker shape when
+   * shapes tell the Y channels apart. It follows the channel, so removing another Y never changes it.
+   */
+  slot: number
 }
 
 export interface XYSampleSeries {
@@ -150,7 +156,10 @@ export interface XYData {
 }
 
 /** The X–Y settings the samples, means and legend depend on (not the style, fit or labels). */
-export type XYDataConfig = Pick<XYConfig, 'x' | 'ys' | 'source' | 'groups' | 'colorBy' | 'fitTarget' | 'showMeans'>
+export type XYDataConfig = Pick<
+  XYConfig,
+  'x' | 'ys' | 'ySlots' | 'source' | 'groups' | 'colorBy' | 'fitTarget' | 'showMeans'
+>
 
 export interface XYDataInput {
   ds: Dataset
@@ -176,9 +185,10 @@ export function buildXYData({ ds, xy, ws, view, axis, lines }: XYDataInput): XYD
   const effective = effectiveXY(xy, ws, view)
   const x = xy.x ? (channelById(ds, xy.x) ?? null) : null
   const ys: XYChannel[] = []
+  const slots = sanitizeSlots(xy.ySlots, xy.ys.length)
   xy.ys.slice(0, MAX_Y).forEach((id, index) => {
     const ch = channelById(ds, id)
-    if (ch) ys.push({ ch, index })
+    if (ch) ys.push({ ch, index, slot: slots[index] })
   })
 
   const groupsById = new Map(ws.groups.map((g) => [g.id, g]))
@@ -220,7 +230,7 @@ export function buildXYData({ ds, xy, ws, view, axis, lines }: XYDataInput): XYD
         key: `${group ? group.id : '*'}|${y.ch.id}`,
         y,
         group,
-        slot: group ? group.slot : y.index,
+        slot: group ? group.slot : y.slot,
         shape: shapeFor(group, y),
         name: group ? (ys.length > 1 ? `${group.name} · ${y.ch.meta.short}` : group.name) : channelTitle(y.ch),
         ...filled,
@@ -246,7 +256,7 @@ export function buildXYData({ ds, xy, ws, view, axis, lines }: XYDataInput): XYD
           pointIndex,
           group,
           y,
-          slot: unitGroup ? unitGroup.slot : y.index,
+          slot: unitGroup ? unitGroup.slot : y.slot,
           shape: shapeFor(unitGroup, y),
           x: xStats,
           yStats,
@@ -392,9 +402,9 @@ function shapeChooser(
   allGroups: readonly PointGroup[],
 ): (group: PointGroup | null, y: XYChannel) => MarkerShape {
   if (colorBy === 'series') {
-    return (_group, y) => (yCount > 3 ? MARKER_SHAPES[y.index % 8] : 'circle')
+    return (_group, y) => (yCount > 3 ? MARKER_SHAPES[y.slot % 8] : 'circle')
   }
-  if (yCount > 1) return (_group, y) => MARKER_SHAPES[y.index % 8]
+  if (yCount > 1) return (_group, y) => MARKER_SHAPES[y.slot % 8]
   if (colorBy === 'group' && usedGroups.length > 3) {
     return (group) => MARKER_SHAPES[Math.max(0, allGroups.findIndex((g) => g.id === group?.id)) % 8]
   }
@@ -425,7 +435,7 @@ function legendEntries(base: Pick<XYData, 'ys' | 'effective' | 'series'>): XYLeg
   }
   if (ys.length > 1) {
     for (const y of ys) {
-      entries.push({ key: `y:${y.ch.id}`, name: channelTitle(y.ch), kind: 'shape', slot: y.index, shape: MARKER_SHAPES[y.index % 8] })
+      entries.push({ key: `y:${y.ch.id}`, name: channelTitle(y.ch), kind: 'shape', slot: y.slot, shape: MARKER_SHAPES[y.slot % 8] })
     }
   }
   return entries

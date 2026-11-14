@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fitOscillation } from '../core/analysis/modes'
-import { channelById, buildDataset } from '../core/dataset'
+import { buildDataset } from '../core/buildDataset'
+import { channelById } from '../core/dataset'
 import { DEMO_MODES, generateDemoFlight } from '../core/demo/generateDemo'
 import { parseText } from '../core/parse'
 import { sanitizeWorkspace } from './defaults'

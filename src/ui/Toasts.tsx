@@ -1,12 +1,13 @@
 import { AlertIcon, CheckCircleIcon, InfoIcon, XIcon } from '@primer/octicons-react'
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { commandKey } from '../layout/platform'
-import { dismissToast, holdToast, latestUndoToast, runToastAction, useApp } from '../store/app'
+import { dismissToast, holdToast, isUndoAction, latestUndoToast, runToastAction, useApp } from '../store/app'
 import { isUndoKey } from './toastKeys'
 
 /**
  * Short messages, bottom right. Errors are announced assertively. A toast's time stops while the pointer is over it or
- * focus is in it, and Ctrl/Cmd+Z runs the newest Undo from anywhere on the page.
+ * focus is in it, and Ctrl/Cmd+Z runs the newest Undo of the open file from anywhere on the page (an Undo closes when
+ * another file becomes active: store/app.ts).
  */
 export function Toasts() {
   const toasts = useApp((s) => s.toasts)
@@ -61,7 +62,7 @@ export function Toasts() {
       }}
     >
       {toasts.map((t) => {
-        const undo = t.action?.label.trim().toLowerCase() === 'undo'
+        const undo = isUndoAction(t.action)
         return (
           <div
             key={t.id}

@@ -11,9 +11,11 @@
 // on live in structs (xy.*, modeCfg.*) so the MATLAB Code Analyzer does not report the other branches as unreachable.
 // Script-level names are distinctive (logNames, iPoint, ...) because a script shares the caller's workspace (run_all.m).
 
-import { channelTitle } from '../channels'
+import { isDirectionChannel } from '../analysis/windowStats'
+import { channelTitle } from '../channels/title'
 import { channelAlias } from '../channels/alias'
 import { channelById } from '../dataset'
+import { sanitizeSlots } from '../slots'
 import type { Channel, Dataset, RowRange, TestPoint, Workspace } from '../types'
 import { matlabLibrary } from './matlabLibrary'
 import { formulaToMatlab } from './matlabFormula'
@@ -153,6 +155,12 @@ function logicalColumn(items: readonly boolean[]): string {
 /** A numeric column vector: [1; 2]. */
 function numberColumn(items: readonly number[]): string {
   return columnLiteral(items.map(num), 'zeros(0, 1)')
+}
+
+/** A numeric row vector: [1 3], a bare scalar for one item (no Code Analyzer note), zeros(1, 0) for none. */
+function slotRow(items: readonly number[]): string {
+  if (items.length === 0) return 'zeros(1, 0)'
+  return items.length === 1 ? num(items[0]) : `[${items.map(num).join(' ')}]`
 }
 
 /** A valid, unique MATLAB identifier built from `base` (at most `maxLength` characters). */
@@ -506,7 +514,8 @@ function colourLines(): string[] {
     return `    ${rgb.join(' ')}   % ${i + 1} ${c.hex} ${c.name}`
   })
   return [
-    "% The app's 8 categorical colours (light theme). A test-point group keeps its colour slot everywhere.",
+    "% The app's 8 categorical colours (light theme). A test-point group keeps its colour slot everywhere, and a",
+    '% channel keeps its slot in its time-history panel and in the X-Y y list (panelSlot, xy.ySlot below).',
     'seriesColors = [',
     ...rows,
     '] / 255;',
@@ -567,16 +576,19 @@ function pointsTable(w: ScriptWriter, ds: Dataset, ws: Workspace): string[] {
     const expr = w.channelExpr(id)
     if (!ch || !expr) continue
     const name = identifier(channelAlias(ch), used, 63 - '_mean'.length)
-    tracked.push(`    ${matlabString(name)}, ${expr}, ${matlabString(channelTitle(ch))}`)
+    tracked.push(`    ${matlabString(name)}, ${expr}, ${matlabString(channelTitle(ch))}, ${isDirectionChannel(ch)}`)
   }
   return [
     '% One row per test point: its rows and elapsed times, then the mean, standard deviation (n - 1), min, max and',
-    '% number of finite samples of each tracked channel over the point (NaN samples ignored, as in the app).',
-    'tracked = {   % name in the table, values, title',
+    '% number of finite samples of each tracked channel over the point (NaN samples ignored, as in the app). A',
+    '% direction that wraps at north (heading, track, wind direction: true in the last column, decided by the',
+    "% app's rule) is unwrapped first, so a window through 360/0 deg gets the same mean, spread, min and max as in",
+    "% the app and its CSV (mean in 0-360 deg).",
+    'tracked = {   % name in the table, values, title, wraps at 360 deg',
     ...tracked,
     '};',
     'if isempty(tracked)',
-    '    tracked = cell(0, 3);',
+    '    tracked = cell(0, 4);',
     'end',
     'firstRow = NaN(nPoints, 1);',
     'lastRow = NaN(nPoints, 1);',
@@ -596,7 +608,7 @@ function pointsTable(w: ScriptWriter, ds: Dataset, ws: Workspace): string[] {
     'for iTracked = 1:size(tracked, 1)',
     '    S = NaN(nPoints, 5);',
     '    for iPoint = 1:nPoints',
-    '        S(iPoint, :) = xppStats(tracked{iTracked, 2}(pointRows{iPoint}));',
+    '        S(iPoint, :) = xppStats(tracked{iTracked, 2}(pointRows{iPoint}), tracked{iTracked, 4});',
     '    end',
     '    for iStat = 1:5',
     "        T.([tracked{iTracked, 1} '_' statNames{iStat}]) = S(:, iStat);",
@@ -611,7 +623,11 @@ function pointsTable(w: ScriptWriter, ds: Dataset, ws: Workspace): string[] {
     "writetable(csvT, fullfile(outDir, 'test_points.csv'));",
     "fprintf('\\nTest points -> %s\\n', fullfile(outDir, 'test_points.csv'));",
     'for iTracked = 1:size(tracked, 1)',
-    "    fprintf('  %-28s %s\\n', tracked{iTracked, 1}, tracked{iTracked, 3});",
+    "    note = '';",
+    '    if tracked{iTracked, 4}',
+    "        note = '   (wraps at 360 deg: unwrapped through north, mean in 0-360 deg)';",
+    '    end',
+    "    fprintf('  %-28s %s%s\\n', tracked{iTracked, 1}, tracked{iTracked, 3}, note);",
     'end',
     'disp(T);',
   ]
@@ -625,11 +641,14 @@ function xySection(w: ScriptWriter, ds: Dataset, ws: Workspace, opts: MatlabExpo
       'X-Y plot skipped: no X or Y channel was chosen in the app.',
     )
   }
+  // Each y channel in its colour slot in the app (it follows the channel: XYConfig.ySlots).
+  const ySlots = sanitizeSlots(config.ySlots, config.ys.length)
   const ys = config.ys
-    .map((id) => ({ ch: channelById(ds, id), expr: w.channelExpr(id) }))
-    .filter((y): y is { ch: Channel; expr: string } => !!y.ch && y.expr !== null)
+    .map((id, i) => ({ ch: channelById(ds, id), expr: w.channelExpr(id), slot: ySlots[i] }))
+    .filter((y): y is { ch: Channel; expr: string; slot: number } => !!y.ch && y.expr !== null)
     .slice(0, SERIES_COLORS.length)
   const xExpr = w.channelExpr(config.x) ?? 'NaN(nRows, 1)'
+  const xCh = config.x ? channelById(ds, config.x) : undefined
   const usePoints = config.source === 'points' && ws.points.length > 0
   const source = usePoints ? 'points' : config.source === 'points' ? 'all' : config.source
   const viewRows = opts.view ? w.rows(opts.view) : null
@@ -656,6 +675,15 @@ function xySection(w: ScriptWriter, ds: Dataset, ws: Workspace, opts: MatlabExpo
     ...ys.map((y) => `    ${y.expr}   % ${commentText(channelTitle(y.ch))}`),
     '};',
     `xy.yName = ${cellColumn(ys.map((y) => channelTitle(y.ch)))};`,
+    setting(
+      `xy.ySlot = ${numberColumn(ys.map((y) => y.slot + 1))};`,
+      "row of seriesColors (and marker) of each y channel: its colour in the app",
+    ),
+    setting(
+      `xy.xHeading = ${xCh ? isDirectionChannel(xCh) : false};`,
+      'x wraps at 360 deg (a heading): test-point means are taken unwrapped, as in the app',
+    ),
+    setting(`xy.yHeading = ${logicalColumn(ys.map((y) => isDirectionChannel(y.ch)))};`, 'the same for each y channel'),
     `xy.xLabel = ${matlabString(xLabel)};`,
     `xy.yLabel = ${matlabString(yLabel)};`,
     `xy.title = ${matlabString(config.title.trim())};`,
@@ -705,7 +733,11 @@ const XY_CODE = [
   "hold(ax, 'on');",
   "grid(ax, 'on');",
   "box(ax, 'on');",
-  "markers = 'osd^v<>p';   % one marker shape per y channel",
+  "markers = 'osd^v<>p';   % marker shapes, one per colour slot",
+  'yMarker = markers(xy.ySlot);   % each y channel keeps its slot\'s shape (a circle when there is one channel)',
+  'if isscalar(xy.ySlot)',
+  "    yMarker = 'o';",
+  'end',
   'fitLog = {};             % fit equations, printed below',
   "if strcmp(xy.source, 'points')",
   "    % As in the app, one colour (and one fit) per plotted group when colouring by group; otherwise one per y channel",
@@ -730,7 +762,7 @@ const XY_CODE = [
   "                    label = sprintf('%s - %s', label, xy.yName{iY});",
   '                end',
   '            else',
-  '                color = seriesColors(iY, :);',
+  '                color = seriesColors(xy.ySlot(iY), :);',
   '                label = xy.yName{iY};',
   '            end',
   '            rows = unique(vertcat(pointRows{members}));   % a row two points share counts once, as in the app',
@@ -741,12 +773,12 @@ const XY_CODE = [
   '            end',
   '            M = NaN(numel(members), 4);   % x mean, x std, y mean, y std',
   '            for iMember = 1:numel(members)',
-  '                sx = xppStats(xy.x(pointRows{members(iMember)}));',
-  '                sy = xppStats(xy.y{iY}(pointRows{members(iMember)}));',
+  '                sx = xppStats(xy.x(pointRows{members(iMember)}), xy.xHeading);',
+  '                sy = xppStats(xy.y{iY}(pointRows{members(iMember)}), xy.yHeading(iY));',
   '                M(iMember, :) = [sx(1), sx(2), sy(1), sy(2)];',
   '            end',
   '            if xy.showMeans',
-  '                errorbar(ax, M(:, 1), M(:, 3), M(:, 4), M(:, 4), M(:, 2), M(:, 2), markers(iY), ...',
+  '                errorbar(ax, M(:, 1), M(:, 3), M(:, 4), M(:, 4), M(:, 2), M(:, 2), yMarker(iY), ...',
   "                    'Color', color, 'MarkerFaceColor', color, 'MarkerSize', 7, 'LineStyle', 'none', ...",
   "                    'CapSize', 4, 'LineWidth', 1, 'DisplayName', [label ' (mean ' char(177) ' 1' char(963) ')']);",
   '            end',
@@ -768,7 +800,7 @@ const XY_CODE = [
   '        rows = xy.viewRows;',
   '    end',
   '    for iY = 1:numel(xy.y)',
-  '        color = seriesColors(iY, :);',
+  '        color = seriesColors(xy.ySlot(iY), :);',
   '        if xy.showSamples',
   "            xppSamples(ax, xy.x, xy.y{iY}, rows, xy.style, xy.colorBy, color, el, xy.yName{iY}, ...",
   "                ~strcmp(xy.colorBy, 'time'));",
@@ -807,9 +839,11 @@ const XY_CODE = [
 function timeSection(w: ScriptWriter, ds: Dataset, ws: Workspace, opts: MatlabExportOptions): Section {
   const panels = ws.panels
     .map((panel) => {
+      // Each line in its colour slot in the app (it follows the channel: PanelConfig.slots).
+      const slots = sanitizeSlots(panel.slots, panel.channelIds.length)
       const channels = panel.channelIds
-        .map((id) => ({ ch: channelById(ds, id), expr: w.channelExpr(id) }))
-        .filter((c): c is { ch: Channel; expr: string } => !!c.ch && c.expr !== null)
+        .map((id, i) => ({ ch: channelById(ds, id), expr: w.channelExpr(id), slot: slots[i] }))
+        .filter((c): c is { ch: Channel; expr: string; slot: number } => !!c.ch && c.expr !== null)
         .slice(0, SERIES_COLORS.length)
       return { channels, yZero: panel.yZero === true }
     })
@@ -836,6 +870,9 @@ function timeSection(w: ScriptWriter, ds: Dataset, ws: Workspace, opts: MatlabEx
     'panelNames = {',
     ...panels.map((p) => `    {${p.channels.map((c) => matlabString(channelTitle(c.ch))).join(', ')}}`),
     '};',
+    "panelSlot = {   % row of seriesColors for each line: its colour in the app (a channel keeps its slot)",
+    ...panels.map((p) => `    ${slotRow(p.channels.map((c) => c.slot + 1))}`),
+    '};',
     `panelYLabel = ${cellColumn(panels.map((p) => sharedLabel(p.channels.map((c) => c.ch))))};`,
     `panelYZero = ${logicalColumn(panels.map((p) => p.yZero))};   % force the y axis to include zero`,
     '',
@@ -849,7 +886,8 @@ function timeSection(w: ScriptWriter, ds: Dataset, ws: Workspace, opts: MatlabEx
     "    grid(ax, 'on');",
     "    box(ax, 'on');",
     '    for iLine = 1:numel(panelValues{iPanel})',
-    "        plot(ax, thX(thRows), panelValues{iPanel}{iLine}(thRows), '-', 'Color', seriesColors(iLine, :), ...",
+    '        plot(ax, thX(thRows), panelValues{iPanel}{iLine}(thRows), \'-\', ...',
+    "            'Color', seriesColors(panelSlot{iPanel}(iLine), :), ...",
     "            'LineWidth', 1.25, 'DisplayName', panelNames{iPanel}{iLine});",
     '    end',
     '    % Dotted lines where the app starts a new segment (sim reset or recording gap).',

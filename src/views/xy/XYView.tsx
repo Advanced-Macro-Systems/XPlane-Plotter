@@ -39,20 +39,23 @@ const FIGURE = { width: 900, height: 600 }
 
 function useXYModel(ds: Dataset, ws: Workspace, view: RowRange | null, axis: TimeAxis) {
   const xy = ws.xy
-  // setXY copies ys on every change: key the data on the ids, so a label or fit change never rebuilds it.
+  // setXY copies ys on every change: key the data on the ids (and their colour slots), so a label or fit change never
+  // rebuilds it.
   const ysKey = xy.ys.join('\n')
+  const slotsKey = (xy.ySlots ?? []).join(',')
   const groupsKey = (xy.groups ?? []).join('\n')
   const config = useMemo<XYDataConfig>(
     () => ({
       x: xy.x,
       ys: ysKey ? ysKey.split('\n') : [],
+      ySlots: slotsKey ? slotsKey.split(',').map(Number) : undefined,
       source: xy.source,
       groups: groupsKey ? groupsKey.split('\n') : undefined,
       colorBy: xy.colorBy,
       fitTarget: xy.fitTarget,
       showMeans: xy.showMeans,
     }),
-    [xy.x, ysKey, xy.source, groupsKey, xy.colorBy, xy.fitTarget, xy.showMeans],
+    [xy.x, ysKey, slotsKey, xy.source, groupsKey, xy.colorBy, xy.fitTarget, xy.showMeans],
   )
   // The zoom range matters only to the zoom-range source.
   const rows = config.source === 'view' ? view : null

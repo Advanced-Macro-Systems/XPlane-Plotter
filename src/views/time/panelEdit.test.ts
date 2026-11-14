@@ -90,8 +90,32 @@ describe('pickChannel', () => {
   it('starts the first panel when there is none, and ignores unknown channels', () => {
     const first = pickChannel([], null, 'kias', options())
     expect(first.change).toBe('created')
-    expect(first.panels).toEqual([{ id: 'new1', channelIds: ['kias'] }])
+    expect(first.panels).toEqual([{ id: 'new1', channelIds: ['kias'], slots: [0] }])
     expect(pickChannel(stack, 'p1', 'nope', options()).change).toBe('none')
+  })
+
+  it('keeps each channel’s colour slot: removing one never re-colours the others, a new one takes the lowest free', () => {
+    const panels: PanelConfig[] = [{ id: 'p1', channelIds: ['kias', 'ktas', 'gs'], slots: [0, 1, 2] }]
+    const unitOf = (id: string) => ({ kias: 'kt', ktas: 'kt', gs: 'kt', ias2: 'kt' })[id] ?? null
+    const removed = pickChannel(panels, 'p1', 'kias', options({ unitOf }))
+    expect(removed.panels[0]).toMatchObject({ channelIds: ['ktas', 'gs'], slots: [1, 2] })
+    // The next channel added fills the slot kias left.
+    const added = pickChannel(removed.panels, 'p1', 'ias2', options({ unitOf }))
+    expect(added.panels[0]).toMatchObject({ channelIds: ['ktas', 'gs', 'ias2'], slots: [1, 2, 0] })
+    // A stack saved before slots were stored counts by position.
+    const legacy = pickChannel([{ id: 'p1', channelIds: ['kias', 'ktas'] }], 'p1', 'kias', options())
+    expect(legacy.panels[0]).toMatchObject({ channelIds: ['ktas'], slots: [1] })
+    // Removing from every panel keeps the slots of what stays in each.
+    const everywhere = pickChannel(
+      [
+        { id: 'p1', channelIds: ['alt'], slots: [0] },
+        { id: 'p2', channelIds: ['kias', 'ktas'], slots: [3, 5] },
+      ],
+      'p1',
+      'kias',
+      options(),
+    )
+    expect(everywhere.panels.map((p) => p.slots)).toEqual([[0], [5]])
   })
 
   it('treats a dimensionless channel as its own unit', () => {

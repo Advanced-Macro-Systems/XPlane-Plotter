@@ -7,7 +7,7 @@
 // Text that comes from the file or the user (headers, point and group names) is guarded against spreadsheet formula
 // injection: a text cell starting with = + - @ gets a leading apostrophe, as OWASP recommends. Numbers are never altered.
 
-import { channelTitle } from '../channels'
+import { channelTitle } from '../channels/title'
 import { windowStats } from '../analysis/windowStats'
 import { channelById } from '../dataset'
 import type { Channel, Dataset, RowRange, Workspace } from '../types'

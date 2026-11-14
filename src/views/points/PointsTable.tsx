@@ -331,6 +331,7 @@ function deletePoint(ds: Dataset, point: TestPoint): void {
   removePoint(point.id)
   toast(`Deleted test point “${point.name}”.`, 'info', {
     label: 'Undo',
+    datasetId: ds.id,
     run: () => {
       if (getActiveDataset()?.id !== ds.id) {
         toast(`Switch back to ${ds.name} to undo.`, 'info')
