@@ -7,8 +7,9 @@
 // It serves dist/ (or --dist, a build made with `vite build --outDir`, so several checks can run side by side) with
 // `vite preview`, opens the landing page, loads the demo flight and (optionally) a real log through
 // the real file input, visits every tab in light and dark, drags a selection and saves a test point, picks the X–Y
-// range-and-endurance preset on the demo, and screenshots each step into --out. It fails (exit 1) on any console error,
-// page error or failed step.
+// range-and-endurance preset on the demo, runs Find steady points (on the real log it adds what it finds) and Add
+// points from times, and screenshots each step into --out. It fails (exit 1) on any console error, page error or
+// failed step.
 
 import { spawn } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
@@ -160,6 +161,62 @@ async function rangeEndurance(page, shotName) {
   await shot(page, shotName)
 }
 
+/** The number of test-point rows, once it equals `n`. */
+async function pointRows(page, n) {
+  await page.waitForFunction((count) => document.querySelectorAll('[data-testid="points-row"]').length === count, n, {
+    timeout: 5000,
+    polling: 100,
+  })
+}
+
+/**
+ * Find steady points from the Test points toolbar. With `add`, adds every new stretch it found and checks the table
+ * gained them; returns how many were added. On the demo every trim point is found and already saved, so nothing is
+ * added.
+ */
+async function findSteadyPoints(page, shotName, { add, atLeast = 1 }) {
+  await page.getByTestId('tab-points').click()
+  await page.getByTestId('view-points').waitFor()
+  const before = await page.getByTestId('points-row').count()
+  await page.getByTestId('find-steady-button').click()
+  await page.getByTestId('steady-dialog').waitFor({ timeout: 10_000 })
+  await page.waitForFunction(
+    (n) => document.querySelectorAll('[data-testid="steady-row"]').length >= n,
+    atLeast,
+    { timeout: 10_000, polling: 100 },
+  )
+  await sleep(300)
+  await shot(page, shotName)
+  const button = page.getByTestId('steady-add')
+  if (!add || (await button.isDisabled())) {
+    await page.keyboard.press('Escape')
+    await page.getByTestId('steady-dialog').waitFor({ state: 'detached', timeout: 5000 })
+    return 0
+  }
+  const count = Number(((await button.innerText()).match(/\d+/) ?? ['0'])[0])
+  await button.click()
+  await pointRows(page, before + count)
+  return count
+}
+
+/** Add points from times: pastes `text`, expects the clock check to confirm a time axis, adds the windows. */
+async function addPointsFromTimes(page, text, expected, shotName) {
+  await page.getByTestId('tab-points').click()
+  await page.getByTestId('view-points').waitFor()
+  const before = await page.getByTestId('points-row').count()
+  await page.getByTestId('add-times-button').click()
+  await page.getByTestId('times-dialog').waitFor({ timeout: 10_000 })
+  await page.getByTestId('times-input').fill(text)
+  await page.getByTestId('times-verdict').waitFor({ state: 'visible', timeout: 5000 })
+  const verdict = await page.getByTestId('times-verdict').innerText()
+  if (!/^These times match /.test(verdict)) throw new Error(`no time axis confirmed: ${verdict}`)
+  const rows = await page.getByTestId('times-row').count()
+  if (rows !== expected) throw new Error(`${rows} windows read, expected ${expected}`)
+  await shot(page, shotName)
+  await page.getByTestId('times-add').click()
+  await pointRows(page, before + expected)
+}
+
 const server = startServer()
 let browser
 try {
@@ -200,6 +257,15 @@ try {
     await rangeEndurance(page, 'demo-xy-range-endurance')
   })
 
+  await step('find steady points (demo: finds the five trim points, all saved)', async () => {
+    await findSteadyPoints(page, 'demo-find-steady', { add: false, atLeast: 5 })
+  })
+
+  await step('add points from times (demo)', async () => {
+    // A synthetic table: the level start before the first trim point, and a line without a time.
+    await addPointsFromTimes(page, 'Time (s) | IAS\n1-7 | 330\n(not flown) | 200', 1, 'demo-add-times')
+  })
+
   await setTheme(page, 'dark')
   await visitTabs(page, 'demo-dark')
   await setTheme(page, 'light')
@@ -221,6 +287,10 @@ try {
     await visitTabs(page, 'real-light')
     await step('select + save test point (real)', async () => {
       await saveSelectionAsPoint(page, 'real')
+    })
+    await step('find steady points (real)', async () => {
+      timings['real steady points added'] = await findSteadyPoints(page, 'real-find-steady', { add: true, atLeast: 0 })
+      await shot(page, 'real-steady-points')
     })
     await setTheme(page, 'dark')
     await visitTabs(page, 'real-dark')

@@ -1,7 +1,8 @@
-// The Test points toolbar: the groups (rename, colour, delete), a new group, the tracked columns, saving the current
-// selection, and the exports (table, MATLAB, session) with the session import.
+// The Test points toolbar: the groups (rename, colour, delete), a new group, the tracked columns, finding steady points
+// or adding them from typed times (the dialogs the shell shows), saving the current selection, and the exports (table,
+// MATLAB, session) with the session import.
 
-import { ColumnsIcon, PlusIcon, TrashIcon } from '@primer/octicons-react'
+import { ColumnsIcon, PasteIcon, PlusIcon, SearchIcon, TrashIcon } from '@primer/octicons-react'
 import { useState, type FormEvent } from 'react'
 import { ChannelPicker } from '../../components/ChannelPicker'
 import { ExportMenu, type ExportItem } from '../../components/ExportMenu'
@@ -9,7 +10,7 @@ import { pointsTableCsv } from '../../core/export/csv'
 import { downloadText } from '../../core/export/download'
 import type { Dataset, PointGroup, Workspace } from '../../core/types'
 import { exportMatlab, saveSessionFile } from '../../layout/fileActions'
-import { addGroup, getWorkspace, removeGroup, setTracked, toast, updateGroup } from '../../store/app'
+import { addGroup, getWorkspace, openPointsTool, removeGroup, setTracked, toast, updateGroup } from '../../store/app'
 import { Dropdown } from '../../ui/Dropdown'
 import { exportStem } from '../xy/xyControls'
 import { MAX_TRACKED, SLOT_NAMES } from './pointsModel'
@@ -105,6 +106,24 @@ export function PointsToolbar({ ds, ws, canAdd, onAdd, onImportSession }: Points
             </>
           }
         />
+        <button
+          type="button"
+          className="btn btn-sm btn-outline"
+          title="Find the stretches of steady, level flight in the log and add them as test points"
+          data-testid="find-steady-button"
+          onClick={() => openPointsTool('steady')}
+        >
+          <SearchIcon size={14} /> Find steady points…
+        </button>
+        <button
+          type="button"
+          className="btn btn-sm btn-outline"
+          title="Paste the times of your test points (with the speeds held) and add them"
+          data-testid="add-times-button"
+          onClick={() => openPointsTool('times')}
+        >
+          <PasteIcon size={14} /> Add from times…
+        </button>
         <button
           type="button"
           className="btn btn-sm btn-outline"

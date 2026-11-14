@@ -17,7 +17,8 @@ src/
     time.ts             time source choice, gap-collapsed elapsed time, segments, time axes, formatting
     channels/           what each header token means (see "Channel meanings"), data-set groups, recording guide
     analysis/           stats (window stats unwrap headings across north), polynomial fits, mode identification,
-                        formula language, derived channels, decimation
+                        formula language, derived channels, decimation, range and endurance, steady-window search
+                        (steady.ts)
     export/             CSV, session JSON, MATLAB script generator (its xppStats unwraps the same headings),
                         downloads
     slots.ts            colour slots of a channel list (a panel, the X–Y Y channels): colour follows the channel
@@ -85,7 +86,10 @@ datasets or workspaces in place: actions replace objects so React and the persis
 Views do not import each other's components; they talk through the store. `setTab` switches tabs, `setView` /
 `setSelection` carry the zoom range and selection (shown as chips in the tab bar), `setModes({ source })` hands a
 window to Dynamic modes, and `openChannels({ group } | { constant })` opens the Channels tab filtered (the request
-sits in `channelsRequest` until the Channels view takes it). Pure helpers may be shared across view folders (e.g.
+sits in `channelsRequest` until the Channels view takes it). `openPointsTool('steady' | 'times')` opens Find steady
+points or Add points from times over whichever tab asked (Test points, Time history, the X–Y range and endurance
+note): the request sits in `pointsTool`, belongs to its file (it closes when another file becomes active), and the
+shell's `PointsToolHost` lazy-loads `views/points/PointsTools` to show it. Pure helpers may be shared across view folders (e.g.
 `views/points/pointsModel`: Time history names a new test point with `suggestPointName`, like Test points does).
 
 ## App shell (src/layout)
@@ -126,11 +130,49 @@ unit-tested modules next to them:
   (`XYChart`, `xyHover.ts`), fit and mean tables (`XYResults`, `xyTables.ts`). `xyModel.ts` builds samples, means and
   fits and focuses the axes past absurd outliers; `xyControls.ts` holds the control rules.
 - `points/` (`pt-`): the test-point table (mean ± σ, drift flags, sorting, pinned columns), groups, add-from-selection
-  and session import dialogs. Logic: `pointsModel.ts`.
+  and session import dialogs, and the two "add several points" dialogs the shell shows (`PointsTools`): Find steady
+  points (`FindSteadyDialog`) and Add points from times (`AddTimesDialog`). Logic: `pointsModel.ts`, `steadyModel.ts`
+  (their preview rows, and which rows start unticked and why: far off the speed listed, sharing rows with an earlier
+  line, scattered, or without a speed when the others list one), `timesTable.ts` (reading a pasted table, a window's
+  rows on a time axis, scoring each time axis by how many windows' mean speeds agree with the speeds listed),
+  `pointSets.ts` (names, the target group, the one workspace change that adds a set and its undo; a new group joins an
+  X–Y group filter so the points are plotted).
+
+**Reading pasted times.** `parseTimesTable` splits a line at tabs or pipes, keeping empty cells so a blank spreadsheet
+cell keeps its column (a Markdown row's outer pipes add none), else at commas; a label in front ("Point 1:", "3)") and
+numbers glued to letters ("t1") are not times. A header names the time (time, start, end, elapsed, t1…) and speed
+columns; without one, the lines with a window and one number say whether the time or the speed comes first. A number
+alone is a time unless it stands where the speed goes: after words ("(not recorded) 140", "n/a | 140") or blank time
+cells. `matchTimeBases` ranks the time axes by how many listed speeds agree within `MATCH_LIMIT` (windows outside the
+log on an axis are counted apart), and `clockVerdict` confirms the best when at least `MATCH_SHARE` (75 %) of those
+inside agree, naming the lines that do not. `windowRows` gives no rows for a window that holds no sample (outside the
+log, or in a gap of that axis).
 - `modes/` (`md-`): quick picks, channel and window (selection, zoom range or test point), the fit with residuals and
   results. Logic: `modesModel.ts` over `core/analysis/modes.ts`.
 - `channels/` (`ch-`): every channel with statistics, flags and a sparkline (`components/Sparkline`), search, filters
   and sort (`channelsTable.ts`), row actions, and the formula editor (`FormulaDialog`, checked by `formulaCheck.ts`).
+
+**Steady points.** `core/analysis/steady.ts` finds steady, level windows in about one pass per segment: prefix sums
+give any window's mean, scatter and least-squares trend in O(1); a running window (±5 s for the 20 s default) marks
+the rows not in a manoeuvre; each run of such rows (dips shorter than the running window bridged) is cut into its
+longest windows that pass as a whole — the speed's 2σ about its trend and its trend × duration within the tolerance
+(± 2 kt by default, in the speed channel's unit), the mean vertical speed within ± 100 fpm and its σ within twice that
+(the altitude's drift per minute when there is no VVI), the mean bank within ± 5° and its σ within 40 % of that (a
+dutch roll swings it), at least 20 s, faster than 40 kt — longest first. One two-pointer sweep of the run records
+where its end stood for each start; each cut's own sweep follows it only until the two meet, so a long run cut into
+hundreds of windows costs about one sweep. Each window is then trimmed to the stable core of its hold: its ends go
+while the ±1 s smoothed speed is more than a quarter of the tolerance off the window's own trend line (the end of a
+deceleration goes, a steady drift stays); and when the file records the power setting (engine 1's throttle lever, else
+its thrust, power, torque or N1, or a CSV column named so) it is cut to its longest stretch where that stays within
+± 3 % of its level (smoothed over ±1 s, the samples within twice that), a second short of a power change at its end:
+the speed lags the throttle by seconds, so the speed alone keeps the throttle still being set and already pulled for
+the next point. Windows of one run are one hold unless the speed steps by at least the tolerance between their trend
+lines (the steadiest of a hold's windows stays), so holds a few knots apart stay apart; two windows of different runs
+close together are merged only when the whole stretch passes, power included. Windows never cross
+`Dataset.segments`. The speed is KIAS, else KEAS, KTAS or any airspeed (`airspeedChannels`; a unit-less "KIAS"
+column is taken as knots, `speedUnit`); in a CSV the vertical speed, altitude and bank are found by unit and name
+(`steadyChannels`), and without a vertical speed or altitude the dialog says level flight is not checked. The dialog
+searches again 250 ms after typing pauses. Overlaps with saved points are left to the dialog, which skips them.
 
 **Range and endurance (X–Y).** `core/analysis/rangeEndurance.ts` holds the maths: the power (A·V³ + B/V) and drag
 (A·V² + B/V²) models of the parabolic polar, linear least squares on scaled columns, with V_E and V_R in closed form
@@ -219,13 +261,16 @@ rounding. The X–Y presets may create a formula channel on demand (total engine
   fixtures and examples use synthetic values.
 - `npm run e2e` (scripts/e2e.mjs, after `npm run build`) drives the built app in a local Chrome/Edge with
   playwright-core: landing, every tab with the demo in light and dark, a dragged selection saved as a test point, the
-  X–Y range-and-endurance preset, optionally a real log (`--file`), a tablet width; screenshots go to `test-results/`. It fails on any console error,
+  X–Y range-and-endurance preset, Find steady points and Add points from times, optionally a real log (`--file`, where
+  the steady points found are added), a tablet width; screenshots go to `test-results/`. It fails on any console error,
   so also on anything the Content-Security-Policy blocks. `--dist` serves another build folder (`vite build
   --outDir ...`) and `--port` another port, so several checks can run side by side.
   `node scripts/smoke.mjs <tab>` screenshots one tab from the dev server while working on it.
 - Stable `data-testid`s the e2e relies on: `landing`, `demo-button`, `file-input`, `loading-overlay`, `tab-<id>`,
   `view-<id>`, `time-mode-select`, `time-plot-area`, `selection-bar`, `save-point-button`, `save-point-confirm`,
-  `points-row`, `xy-re-summary`, `xy-re-table` (the demo's range and endurance through the jet preset).
+  `points-row`, `xy-re-summary`, `xy-re-table` (the demo's range and endurance through the jet preset),
+  `find-steady-button`, `steady-dialog`, `steady-row`, `steady-add`, `add-times-button`, `times-dialog`, `times-input`,
+  `times-row`, `times-verdict`, `times-add` (Find steady points and Add points from times).
 - CI (GitHub Actions) runs lint, tests and the build before deploying to Pages. Its first step fails when a tracked
   file looks like flight data or an export of it (`*.txt`, `*.csv`, `*.tsv`, `*.dat`, `xpp_*.m`, session JSON,
   `out/`, `samples/`) or is over 1 MB. Only the deploy job may write to Pages; actions are pinned to commit SHAs

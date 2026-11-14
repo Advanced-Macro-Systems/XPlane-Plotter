@@ -526,3 +526,161 @@
   font-size: 12px;
   line-height: 16px;
 }
+
+/* ---------------------------------------------------------------- Find steady points / Add from times (PointsTools) */
+
+.pt-tool {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pt-tool-lead {
+  max-width: 76ch;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 19px;
+}
+.pt-tool-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.pt-tool-settings .select {
+  min-width: 150px;
+  max-width: 100%;
+}
+.pt-tool-number .input {
+  width: 112px;
+}
+.pt-tool-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.pt-tool-status svg {
+  flex: none;
+  color: var(--success);
+}
+.pt-tool-warn,
+.pt-tool-warn svg {
+  color: var(--warning-text);
+}
+.pt-tool-verdict {
+  line-height: 19px;
+}
+.pt-tool-paste {
+  min-height: 96px;
+  line-height: 19px;
+}
+
+/* The preview: its header stays put while the rows scroll; the group field stays below it. */
+.pt-tool-table-wrap {
+  max-height: min(380px, 46dvh);
+}
+.pt-tool-table th,
+.pt-tool-table td {
+  height: 34px;
+}
+.pt-tool-check {
+  width: 36px;
+  padding-right: 0 !important;
+}
+.pt-tool-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--info);
+  vertical-align: middle;
+  cursor: pointer;
+}
+.pt-tool-check input:disabled {
+  cursor: not-allowed;
+}
+.pt-tool-name {
+  min-width: 120px;
+  max-width: 260px;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+.pt-tool-window {
+  color: var(--text-muted);
+}
+.pt-tool-typed {
+  max-width: 200px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+}
+.pt-tool-row.is-repeat td {
+  color: var(--text-subtle);
+}
+.pt-tool-row.is-repeat .pt-tool-name {
+  font-weight: 400;
+}
+.pt-tool-off {
+  color: var(--warning-text) !important;
+  font-weight: 600;
+}
+
+/* In the footer, beside the button that adds the points: "Add to [Speed points ▾] [name]". */
+.pt-tool-group {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-right: auto;
+}
+.pt-tool-to {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.pt-tool-to .select {
+  min-width: 150px;
+  max-width: 240px;
+}
+.pt-tool-group-name {
+  width: 180px;
+  min-width: 0;
+}
+.pt-tool-switch {
+  align-self: flex-end;
+  padding-bottom: 5px;
+}
+
+@media (max-width: 560px) {
+  .pt-tool-settings > .field {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .pt-tool-number .input {
+    width: 100%;
+  }
+  .pt-tool-settings > .pt-tool-number {
+    flex: 1 1 calc(50% - 8px);
+  }
+  .pt-tool-group {
+    flex: 1 1 100%;
+  }
+  .pt-tool-to,
+  .pt-tool-to .select,
+  .pt-tool-group-name {
+    flex: 1 1 auto;
+    max-width: none;
+  }
+}

@@ -143,6 +143,25 @@ function UseHelp() {
         The Test points tab lists every saved window with the mean ± σ of the channels you choose, and flags windows that were
         not steady. Group points (for example by CG position) to compare them in the X–Y plot.
       </p>
+      <p>
+        <strong>Find steady points…</strong> (Test points or Time history) finds every stretch of steady, level flight: the
+        speed held within ± 2 kt (its scatter and its trend), the vertical speed within ± 100 fpm, wings level and still,
+        the throttle (or thrust or power, whichever the log has) within ± 3 %, for at least 20 s, never across a sim reset or
+        a gap, each window trimmed to the steady core of the hold: not the throttle still being set at its start, nor
+        already pulled for the next point at its end (the speed follows the throttle seconds later). Change the tolerances
+        (clear the throttle or bank field to leave it out), untick what you do not want and add the rest, named by speed
+        (&quot;250 KIAS&quot;), in a new <strong>Speed points</strong> group or one of yours. Windows that are already test points
+        are left out.
+      </p>
+      <p>
+        <strong>Add from times…</strong> takes the times you wrote down, pasted from your notes or a spreadsheet: one window
+        per line (&quot;150-180 250&quot;, &quot;150 180&quot;, &quot;210–240, 240 kt&quot;, or a single time for ± 10 s), with a header
+        line if you like. Lines without a time (&quot;(not recorded) 140&quot;) are skipped. When the lines list the speed held,
+        it finds the clock you read the times on (elapsed, real or sim time): the one where most windows&apos; mean speeds agree
+        with the speeds listed. Windows far off their listed speed, that overlap another line or hold no data start unticked,
+        with the reason. It offers to show Time history on that clock: elapsed time (sim time with resets and gaps closed up)
+        and X-Plane&apos;s real time drift apart when the sim is paused or reloaded.
+      </p>
 
       <h3>X–Y plot</h3>
       <p>
@@ -154,8 +173,9 @@ function UseHelp() {
       <h3>Range and endurance</h3>
       <ol className="sh-help-steps">
         <li>
-          In Time history, <strong>Select</strong> a steady level stretch at one speed and <strong>Save test point</strong>;
-          repeat at several speeds.
+          Make one test point per speed: <strong>Find steady points…</strong> finds the holds for you (or{' '}
+          <strong>Add from times…</strong> with the times you noted); by hand, <strong>Select</strong> a steady level stretch
+          in Time history and <strong>Save test point</strong>.
         </li>
         <li>
           In X–Y plot choose the preset <strong>Range &amp; endurance — propeller</strong> (engine power against TAS) or{' '}

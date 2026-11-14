@@ -6,11 +6,13 @@ import {
   addGroup,
   addPanel,
   closeDataset,
+  closePointsTool,
   dismissToast,
   getWorkspace,
   holdToast,
   latestUndoToast,
   openFiles,
+  openPointsTool,
   readRecent,
   runToastAction,
   saveDerived,
@@ -554,5 +556,38 @@ describe('undo toasts belong to their file', () => {
     // A click that was on its way (the toast was on screen a moment ago) does nothing either.
     runToastAction(plot.id)
     expect(ran).toEqual([])
+  })
+})
+
+describe('the "add several test points" dialogs', () => {
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', new MemoryStorage())
+    resetStore()
+  })
+  afterEach(() => {
+    closePointsTool()
+    resetStore()
+    vi.unstubAllGlobals()
+  })
+
+  it('open for the active file only, and close when another file becomes active or the file closes', async () => {
+    openPointsTool('steady')
+    expect(useApp.getState().pointsTool).toBeNull()
+    await openFiles([fileOf(logText(40), 'First.txt')])
+    const first = useApp.getState().activeId!
+    openPointsTool('times')
+    expect(useApp.getState().pointsTool).toEqual({ kind: 'times', datasetId: first })
+    closePointsTool()
+    expect(useApp.getState().pointsTool).toBeNull()
+
+    openPointsTool('steady')
+    await openFiles([fileOf(logText(50), 'Second.txt')])
+    expect(useApp.getState().pointsTool).toBeNull()
+    const second = useApp.getState().activeId!
+    openPointsTool('steady')
+    closeDataset(first)
+    expect(useApp.getState().pointsTool).toEqual({ kind: 'steady', datasetId: second })
+    closeDataset(second)
+    expect(useApp.getState().pointsTool).toBeNull()
   })
 })

@@ -4,7 +4,16 @@
 // Pure logic: timeMath.ts, panelEdit.ts, presets.ts, pointDraft.ts; chart options: charts/options/timePanel.ts and
 // timeStack.ts (export figure); imperative chart glue (zoom sync, drag band): timeController.ts.
 
-import { AlertIcon, ArrowBothIcon, ClockIcon, GraphIcon, ZoomInIcon, ZoomOutIcon } from '@primer/octicons-react'
+import {
+  AlertIcon,
+  ArrowBothIcon,
+  ClockIcon,
+  GraphIcon,
+  PasteIcon,
+  SearchIcon,
+  ZoomInIcon,
+  ZoomOutIcon,
+} from '@primer/octicons-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TIME_GRID, type TimeBand, type TimeXInput } from '../../charts/options/timePanel'
 import { useChartTheme } from '../../charts/theme'
@@ -14,7 +23,16 @@ import { formatAxisValue, timeAxis, timeBases } from '../../core/time'
 import type { Dataset, TimeBaseId, Workspace } from '../../core/types'
 import { exportMatlab } from '../../layout/fileActions'
 import { isTypingTarget } from '../../layout/shellModel'
-import { setSelection, setTimeBase, setView, toast, useActiveDataset, useApp, useWorkspace } from '../../store/app'
+import {
+  openPointsTool,
+  setSelection,
+  setTimeBase,
+  setView,
+  toast,
+  useActiveDataset,
+  useApp,
+  useWorkspace,
+} from '../../store/app'
 import { exportTimeCsv, exportTimeImage } from './exportTime'
 import { resolveActive, type PickResult } from './panelEdit'
 import { resolvePresets } from './presets'
@@ -411,6 +429,26 @@ function TimeToolbar({
       >
         <ClockIcon size={16} />
         <span className="tv-collapse">Set window…</span>
+      </button>
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        title="Find the stretches of steady, level flight and add them as test points"
+        data-testid="time-find-steady"
+        onClick={() => openPointsTool('steady')}
+      >
+        <SearchIcon size={16} />
+        <span className="tv-collapse tv-collapse-wide">Find steady points…</span>
+      </button>
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        title="Paste the times of your test points (with the speeds held) and add them"
+        data-testid="time-add-times"
+        onClick={() => openPointsTool('times')}
+      >
+        <PasteIcon size={16} />
+        <span className="tv-collapse tv-collapse-wider">Add from times…</span>
       </button>
       <button
         type="button"

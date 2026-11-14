@@ -54,8 +54,8 @@ export interface XYRange {
  * then shows every row): a fit through a whole log mixes taxiing, climbs and turns.
  */
 export const NEEDS_TEST_POINTS =
-  'Save steady level test points first (Time history → Select → Save test point, one per speed): range and ' +
-  'endurance come from a fit through their means, not through every row of the log.'
+  'Save steady level test points first (Find steady points, or Time history → Select → Save test point, one per ' +
+  'speed): range and endurance come from a fit through their means, not through every row of the log.'
 
 /**
  * Maximum endurance and maximum range of every fit that exists (polynomial numerically, physical in closed form).

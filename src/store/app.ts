@@ -69,6 +69,16 @@ export interface RecentFile {
   savedAt: string
 }
 
+/**
+ * A dialog that adds several test points at once, shown by the shell over whichever tab asked for it (Test points,
+ * Time history, the X–Y range and endurance note): Find steady points, or Add points from times.
+ */
+export interface PointsTool {
+  kind: 'steady' | 'times'
+  /** The file it adds to: it closes when another file becomes active */
+  datasetId: string
+}
+
 /** How another view wants the Channels tab to open (see openChannels). */
 export interface ChannelsRequest {
   /** Show only this group (a group id from core/channels/groups) */
@@ -90,6 +100,8 @@ export interface AppState {
   selection: RowRange | null
   /** Filter for the Channels tab to start with, set by openChannels and taken (cleared) by the Channels view */
   channelsRequest: ChannelsRequest | null
+  /** The open "add several test points" dialog (openPointsTool), or null */
+  pointsTool: PointsTool | null
   toasts: Toast[]
   /**
    * The last try to save a workspace in this browser failed (storage full or blocked): test points last only until
@@ -107,6 +119,7 @@ export const useApp = create<AppState>(() => ({
   view: null,
   selection: null,
   channelsRequest: null,
+  pointsTool: null,
   toasts: [],
   saveFailed: false,
 }))
@@ -247,6 +260,8 @@ useApp.subscribe((state, previous) => {
   for (const t of state.toasts) {
     if (!actionInScope(t.action, state.activeId)) dismissToast(t.id)
   }
+  // An "add several test points" dialog belongs to its file too.
+  if (state.pointsTool && state.pointsTool.datasetId !== state.activeId) set({ pointsTool: null })
 })
 
 // ------------------------------------------------------------------ persistence (per file signature)
@@ -619,6 +634,16 @@ export function openChannels(request: ChannelsRequest): void {
 /** The Channels view applied the request: forget it, so the tab later reopens as the user left it. */
 export function clearChannelsRequest(): void {
   if (get().channelsRequest) set({ channelsRequest: null })
+}
+
+/** Opens Find steady points ('steady') or Add points from times ('times') for the open file, over the current tab. */
+export function openPointsTool(kind: PointsTool['kind']): void {
+  const { activeId } = get()
+  if (activeId) set({ pointsTool: { kind, datasetId: activeId } })
+}
+
+export function closePointsTool(): void {
+  if (get().pointsTool) set({ pointsTool: null })
 }
 
 // ------------------------------------------------------------------ zoom range and selection (rows)

@@ -20,6 +20,14 @@ and propulsion-only control.
 - **Test points.** Drag across the plots to select a steady window and save it as a test point in a colour-coded group. The
   table shows mean ± σ for the channels you choose, with a drift check that flags windows which were not steady.
   Deleting a point (or a panel) can be undone from its message or with Ctrl+Z (⌘Z on a Mac).
+- **Find steady points.** Finds every stretch of steady, level flight on its own (speed held within ± 2 kt, vertical
+  speed within ± 100 fpm, wings level and still, throttle — or thrust or power — within ± 3 %, at least 20 s; all
+  adjustable), trimmed to the steady core of each hold (never the throttle still being set, or already pulled for the
+  next point) and never across a sim reset, and adds the ones you tick as test points named by speed ("250 KIAS").
+- **Add points from times.** Paste the times you wrote down (one window per line, "150-180 250", with the speed held):
+  the app works out which clock they were read on (elapsed, real or sim time) from the speeds, previews each window's
+  mean speed against the speed listed, and adds them. Lines without a time ("(not recorded) 140") are skipped; windows
+  far off the speed listed, or that overlap another line, start unticked.
 - **X–Y plots.** Any channel against any other, using all data, the zoom range or the test points. Test points are shown as
   means with ±σ error bars. Linear, quadratic and cubic fits, and two physical models from the parabolic drag polar
   (power A·V³ + B/V, drag or thrust A·V² + B/V²), report the equation, R² and standard errors. Presets include the lift
@@ -45,8 +53,9 @@ marked. It is synthetic: never use it as flight-test evidence.
 
 1. Fly steady, level points at several speeds (constant altitude and power, VVI near zero), from near the stall to the
    fastest you need, with true airspeed and engine power (propeller) or thrust (jet) recorded.
-2. **Time history** → **Select** → drag across a steady stretch (or **Set window…**) → **Save test point**. Repeat for every
-   speed; one group for the series.
+2. **Test points** → **Find steady points…** finds the holds and adds them, one group for the series (or **Add from
+   times…** with the times you noted). By hand: **Time history** → **Select** → drag across a steady stretch (or **Set
+   window…**) → **Save test point**, for every speed.
 3. **X–Y plot** → **Preset** → *Range & endurance — propeller (engine power vs TAS)* or *Range & endurance — jet (thrust vs
    TAS)*. It plots the test-point means, fits the physical model through them, marks both speeds and starts the axes at
    zero. A twin's total engine power or total thrust is made as a formula channel when you pick the preset.

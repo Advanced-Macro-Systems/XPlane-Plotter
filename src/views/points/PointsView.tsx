@@ -1,16 +1,17 @@
 // Test points: the saved windows of steady flight (trim points) and manoeuvre responses, with the mean ± σ of every
 // tracked channel and a steadiness check, grouped and colour-coded. Points are saved in Time history (or here, from
-// the current selection); this view names, groups, hides, sorts and exports them, and jumps to Time history or
-// Dynamic modes for one point. The pure parts live in pointsModel.ts.
+// the current selection), found automatically (Find steady points) or typed as times (Add from times); this view
+// names, groups, hides, sorts and exports them, and jumps to Time history or Dynamic modes for one point. The pure
+// parts live in pointsModel.ts, pointSets.ts, steadyModel.ts and timesTable.ts.
 
-import { CopyIcon, GraphIcon, PinIcon } from '@primer/octicons-react'
+import { CopyIcon, GraphIcon, PasteIcon, PinIcon, SearchIcon } from '@primer/octicons-react'
 import { useMemo, useRef, useState } from 'react'
 import { useChannels, useTimeAxis } from '../../components/hooks'
 import { pointsTableCsv } from '../../core/export/csv'
 import { copyText } from '../../core/export/download'
 import type { Dataset, TimeAxis, Workspace } from '../../core/types'
 import { loadSessionFile } from '../../layout/fileActions'
-import { setTab, toast, useActiveDataset, useApp, useWorkspace } from '../../store/app'
+import { openPointsTool, setTab, toast, useActiveDataset, useApp, useWorkspace } from '../../store/app'
 import { AddPointDialog } from './AddPointDialog'
 import { PointsTable } from './PointsTable'
 import { PointsToolbar } from './PointsToolbar'
@@ -147,8 +148,18 @@ function EmptyPoints({ canAdd, onAdd }: { canAdd: boolean; onAdd: () => void }) 
           Press <strong>Save test point</strong>, name it and pick its group.
         </li>
       </ol>
+      <p className="pt-empty-lead">
+        Or let the app do it: <strong>Find steady points</strong> finds every stretch of steady, level flight (a speed held,
+        no climb, wings level), and <strong>Add from times</strong> takes the times you wrote down, with the speed of each.
+      </p>
       <div className="pt-empty-actions">
-        <button type="button" className="btn btn-primary" onClick={() => setTab('time')}>
+        <button type="button" className="btn btn-primary" onClick={() => openPointsTool('steady')}>
+          <SearchIcon size={16} /> Find steady points…
+        </button>
+        <button type="button" className="btn btn-outline" onClick={() => openPointsTool('times')}>
+          <PasteIcon size={16} /> Add from times…
+        </button>
+        <button type="button" className="btn btn-outline" onClick={() => setTab('time')}>
           <GraphIcon size={16} /> Go to Time history
         </button>
         {canAdd && (

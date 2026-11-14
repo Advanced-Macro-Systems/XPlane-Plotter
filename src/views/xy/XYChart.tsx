@@ -6,7 +6,7 @@
 // Zoom: the mouse wheel zooms both axes about the pointer; dragging pans, or draws a zoom box when "Zoom box" is on;
 // double-click or "Reset view" shows everything again. A new plot (other channels, source or groups) starts unzoomed.
 
-import { AlertIcon, ArrowDownIcon, ScreenFullIcon, ZoomInIcon } from '@primer/octicons-react'
+import { AlertIcon, ArrowDownIcon, PasteIcon, ScreenFullIcon, SearchIcon, ZoomInIcon } from '@primer/octicons-react'
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type MouseEvent, type RefObject } from 'react'
 import { EChart } from '../../charts/EChart'
 import type { ECharts } from '../../charts/echarts'
@@ -16,6 +16,7 @@ import { channelTitle } from '../../core/channels'
 import { scrollBehavior } from '../../components/hooks'
 import { formatAxisValue } from '../../core/time'
 import type { TimeAxis, XYConfig } from '../../core/types'
+import { openPointsTool } from '../../store/app'
 import { LineGlyph, MarkerGlyph, MeanGlyph, SlotSwatch } from './Glyphs'
 import {
   anyZoomed,
@@ -483,13 +484,35 @@ export function XYChartCard({ data, fits, re, labels, xy, axis, chartRef, focus,
         )}
         {re && re.length > 0 && (
           <ul className="xy-re-summary" aria-label="Range and endurance" data-testid="xy-re-summary">
-            {found.length === 0 && (
-              <li className="xy-equation-problem">
-                {re.every((r) => r.re.enduranceNote === NEEDS_TEST_POINTS)
-                  ? NEEDS_TEST_POINTS
-                  : 'No minimum or tangent from the origin on this fit: the table below says why.'}
-              </li>
-            )}
+            {found.length === 0 &&
+              (re.every((r) => r.re.enduranceNote === NEEDS_TEST_POINTS) ? (
+                <li className="xy-equation-problem xy-re-needs">
+                  <span>{NEEDS_TEST_POINTS}</span>
+                  <span className="xy-re-actions">
+                    <button
+                      type="button"
+                      className="btn btn-xs btn-outline"
+                      data-testid="xy-find-steady"
+                      title="Find the stretches of steady, level flight in the log and add them as test points"
+                      onClick={() => openPointsTool('steady')}
+                    >
+                      <SearchIcon size={12} /> Find steady points…
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-xs btn-ghost"
+                      title="Paste the times of your test points (with the speeds held) and add them"
+                      onClick={() => openPointsTool('times')}
+                    >
+                      <PasteIcon size={12} /> Add from times…
+                    </button>
+                  </span>
+                </li>
+              ) : (
+                <li className="xy-equation-problem">
+                  No minimum or tangent from the origin on this fit: the table below says why.
+                </li>
+              ))}
             {found.map((r) => (
               <li key={r.key} className="xy-re-item">
                 {found.length > 1 && <span className="xy-re-name">{r.fit.name}:</span>}

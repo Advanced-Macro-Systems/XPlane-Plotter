@@ -499,9 +499,43 @@
 /* ---------------------------------------------------------------- narrow */
 
 /* Secondary button labels become screen-reader text when there is no room for them (the buttons keep their titles):
-   in the toolbar when the column is narrow, in the selection bar only when the bar itself is (its buttons wrap first). */
+   in the toolbar when the column is narrow, in the selection bar only when the bar itself is (its buttons wrap first).
+   The test-point finders' labels go first, so the toolbar stays on one line on a laptop. */
+@container tv-main (max-width: 1200px) {
+  .tv-toolbar .tv-collapse-wider {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+@container tv-main (max-width: 1080px) {
+  .tv-toolbar .tv-collapse-wide {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
 @container tv-main (max-width: 860px) {
   .tv-toolbar .tv-collapse {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  /* The menu is as wide as its longest choice ("Mission time — resets at row …"); the chosen one is short. */
+  .tv-base-select {
+    max-width: 180px;
+  }
+  /* The label stays for screen readers; the menu shows what it is. */
+  .tv-base .view-toolbar-label {
     position: absolute;
     width: 1px;
     height: 1px;

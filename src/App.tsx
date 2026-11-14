@@ -1,6 +1,6 @@
 // App shell: header (file switcher, actions, tab bar), the open tab's view or the landing page, the loading card, the
-// window-wide drop target, help, the session-import question and toasts, and the one hidden file input every
-// "Open file" action clicks. The shell stays mounted for the whole visit, so it selects ids, never Dataset objects:
+// window-wide drop target, help, the session-import question, the "add several test points" dialogs (Find steady
+// points, Add points from times) and toasts, and the one hidden file input every "Open file" action clicks. The shell stays mounted for the whole visit, so it selects ids, never Dataset objects:
 // React keeps a component's previous state for a while, which would keep a closed file's data in memory.
 
 import { lazy, Suspense, useCallback, useEffect, useState, type ComponentType, type LazyExoticComponent } from 'react'
@@ -13,6 +13,7 @@ import { HelpDialog } from './layout/HelpDialog'
 import { Landing } from './layout/Landing'
 import './layout/layout.css'
 import { LoadingOverlay } from './layout/LoadingOverlay'
+import { PointsToolHost } from './layout/PointsToolHost'
 import { SessionImport } from './layout/SessionImport'
 import { TAB_NAMES, TAB_ORDER, type HelpSection } from './layout/shellModel'
 import { useShortcuts } from './layout/useShortcuts'
@@ -107,6 +108,7 @@ export function App() {
       <DropOverlay />
       {help && <HelpDialog initial={help} onClose={() => setHelp(null)} />}
       <SessionImport />
+      <PointsToolHost />
       <Toasts />
       <input
         ref={registerFileInput}
