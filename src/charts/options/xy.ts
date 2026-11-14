@@ -4,7 +4,8 @@
 // OWNER: X–Y view.
 //
 // Series, bottom to top: sample lines (time order), sample points (large scatter), fit halos and fit curves, the
-// test-point means with ±1σ error bars (one custom series per colour entity). Colour comes from the categorical slot
+// test-point means with ±1σ error bars (one custom series per colour entity); with range and endurance on, the guide
+// lines lie just above the grid and the construction markers with their labels on top. Colour comes from the categorical slot
 // of the entity (Y channel or test-point group), or from a single-hue blue ramp when colouring by time (visualMap
 // with a labelled colour bar). Every series is silent: the view finds the nearest point itself and shows the tooltip
 // with dispatchAction('showTip'), so hovering never rebuilds this option.
@@ -12,8 +13,11 @@
 import type { CustomSeriesRenderItemAPI, CustomSeriesRenderItemReturn } from 'echarts'
 import type { XYConfig } from '../../core/types'
 import type { MarkerShape, XYData, XYFit, XYLabels } from '../../views/xy/xyModel'
+import type { XYRange } from '../../views/xy/xyRange'
 import type { EChartsOption } from '../echarts'
 import { baseOption, mergeOptions, seriesColor, valueAxis, type ChartTheme } from '../theme'
+import { Extent, shownRange } from './xyAxes'
+import { constructionLegend, constructionSeries, hasConstructions } from './xyConstructions'
 
 /** One axis's zoom window, as ECharts' dataZoom takes it: percent (start/end) or axis values (startValue/endValue). */
 export interface XYZoomSpec {
@@ -45,6 +49,52 @@ export interface XYChartInput {
   zoomed?: { x: boolean; y: boolean }
   /** Image export: draw the title and legend into the figure and keep this zoom window */
   figure?: { zoom: XYZoomWindow | null }
+  /**
+   * Range and endurance (XYConfig.rangeEndurance): each fit's results, drawn as constructions (charts/options/
+   * xyConstructions.ts) with the fitted curves dotted. Absent or null = off.
+   */
+  re?: readonly XYRange[] | null
+  /** Both axes start at zero (XYConfig.axesFromZero) */
+  axesFromZero?: boolean
+  /**
+   * The chart's size in pixels (the screen's, rounded; an exported figure's), from which the plotting area the
+   * construction labels are placed in is estimated when `plot` is not given
+   */
+  size?: { width: number; height: number } | null
+  /** Screen only: the plotting area as measured on the chart (px), for the construction labels */
+  plot?: { width: number; height: number } | null
+  /** Screen only: the zoom window shown (as chart.getOption() holds it), so the construction labels stay inside it */
+  labelZoom?: XYZoomWindow | null
+}
+
+/**
+ * Pixels the axes, their labels and names and the grid's margins take from the chart's size: what is left is the
+ * plotting area (an estimate; the screen measures it).
+ */
+const AXES_MARGIN = { width: 110, height: 70 }
+/** The grid's top margin without a title or legend, and the room the colour-by-time bar takes on the right. */
+const GRID_TOP = 14
+const TIME_BAR_WIDTH = 82
+
+/**
+ * The part of an axis range a zoom window shows: its values (ECharts fills startValue/endValue in getOption()), else
+ * its percents of the range, else the whole range.
+ */
+export function zoomedRange(range: readonly [number, number], spec: XYZoomSpec | null | undefined): [number, number] {
+  const whole: [number, number] = [range[0], range[1]]
+  if (!spec) return whole
+  const { startValue, endValue, start, end } = spec
+  if (Number.isFinite(startValue) && Number.isFinite(endValue)) {
+    const lo = Math.max(range[0], Math.min(startValue!, endValue!))
+    const hi = Math.min(range[1], Math.max(startValue!, endValue!))
+    return hi > lo ? [lo, hi] : whole
+  }
+  const span = range[1] - range[0]
+  const from = Number.isFinite(start) ? start! : 0
+  const to = Number.isFinite(end) ? end! : 100
+  const lo = range[0] + (span * Math.max(0, Math.min(from, to))) / 100
+  const hi = range[0] + (span * Math.min(100, Math.max(from, to))) / 100
+  return hi > lo ? [lo, hi] : whole
 }
 
 /** Dimensions of the interleaved sample arrays (SAMPLE_STRIDE values per sample). */
@@ -208,7 +258,13 @@ export function markerPolygon(shape: MarkerShape, cx: number, cy: number, r: num
   }
 }
 
-const FIT_LABEL: Record<number, string> = { 1: 'linear fit', 2: 'quadratic fit', 3: 'cubic fit' }
+const FIT_LABEL: Record<XYFit['kind'], string> = {
+  linear: 'linear fit',
+  poly2: 'quadratic fit',
+  poly3: 'cubic fit',
+  'power-model': 'power model fit',
+  'drag-model': 'drag model fit',
+}
 
 /** The full option. Pure: everything comes from the arguments. */
 export function xyChartOption(input: XYChartInput, theme: ChartTheme): EChartsOption {
@@ -289,16 +345,53 @@ export function xyChartOption(input: XYChartInput, theme: ChartTheme): EChartsOp
     }
   }
 
+  const results = input.re ?? null
+  const fitColor = (f: XYFit) => (timeMode && data.ys.length === 1 ? theme.text : seriesColor(theme, f.slot))
   for (const f of fits) {
-    if (!f.fit || f.curve.length < 4) continue
-    const color = timeMode && data.ys.length === 1 ? theme.text : seriesColor(theme, f.slot)
+    if ((!f.fit && !f.physical) || f.curve.length < 4) continue
+    const color = fitColor(f)
     const points: number[][] = []
     for (let i = 0; i + 1 < f.curve.length; i += 2) points.push([f.curve[i], f.curve[i + 1]])
-    const name = `${f.name} – ${FIT_LABEL[f.degree] ?? 'fit'}`
+    const name = `${f.name} – ${FIT_LABEL[f.kind] ?? 'fit'}`
     const common = { type: 'line', data: points, showSymbol: false, symbol: 'none', silent: true, legendHoverLink: false, emphasis: { disabled: true } }
+    // With range and endurance on, the fitted curve is dotted, as in the classic figure (its extension past the
+    // test points is dashed).
+    const style = results ? { width: 2.5, type: [0.1, 4.5], cap: 'round' } : { width: 2 }
     series.push({ ...common, id: `fit-halo:${f.key}`, lineStyle: { width: 6, color: theme.surface, opacity: 0.9 }, z: 3 })
-    series.push({ ...common, id: `fit:${f.key}`, name, lineStyle: { width: 2, color }, itemStyle: { color }, z: 4 })
+    series.push({ ...common, id: `fit:${f.key}`, name, lineStyle: { ...style, color }, itemStyle: { color }, z: 4 })
     legendNames.push(name)
+  }
+
+  // The axis ranges: ECharts' own, the focus on the bulk of the samples (extent), or, with range and endurance or
+  // axes from zero, everything drawn, the construction points and the origin, with round ends.
+  let xRange = input.extent?.x ?? null
+  let yRange = input.extent?.y ?? null
+  let xSplits: number | null = null
+  let ySplits: number | null = null
+  const fromZero = input.axesFromZero === true
+  if (fromZero || (results && hasConstructions(results, null))) {
+    const drawn = new Extent()
+    if (showSamples) for (const s of data.series) drawn.addInterleaved(s.data, SAMPLE_DIMENSIONS.length, s.count)
+    if (showMeans) {
+      for (const m of data.means) {
+        drawn.add(m.x.mean - m.x.std, m.yStats.mean - m.yStats.std)
+        drawn.add(m.x.mean + m.x.std, m.yStats.mean + m.yStats.std)
+      }
+    }
+    for (const f of fits) drawn.addInterleaved(f.curve, 2)
+    const xs: number[] = []
+    const ys: number[] = []
+    for (const r of results ?? []) {
+      for (const p of [r.re.endurance, r.re.range]) {
+        if (!p) continue
+        xs.push(p.v)
+        ys.push(p.y)
+      }
+    }
+    const shownX = shownRange(input.extent?.x, drawn.x, xs, fromZero)
+    const shownY = shownRange(input.extent?.y, drawn.y, ys, fromZero)
+    if (shownX) [xRange, xSplits] = [shownX.range, shownX.splits]
+    if (shownY) [yRange, ySplits] = [shownY.range, shownY.splits]
   }
 
   if (showMeans && data.means.length) {
@@ -331,18 +424,37 @@ export function xyChartOption(input: XYChartInput, theme: ChartTheme): EChartsOp
     }
   }
 
+  // The range and endurance constructions, last in the legend; their labels are placed in the plotting area as drawn.
+  const reShown = results && results.length && xRange && yRange ? { results, x: xRange, y: yRange } : null
+  const reLegend = reShown ? constructionLegend(reShown.results, reShown.x) : []
   const titleText = figure ? labels.title : ''
-  const legendShown = !!figure && legendNames.length >= 2
-  const top = (titleText ? 40 : 14) + (legendShown ? 28 * Math.ceil(legendNames.length / 4) : 0)
+  const legendCount = legendNames.length + reLegend.length
+  const legendShown = !!figure && legendCount >= 2
+  const top = (titleText ? 40 : GRID_TOP) + (legendShown ? 28 * Math.ceil(legendCount / 4) : 0)
   const zoom = figure?.zoom ?? null
   const [tMin, tMax] = data.tRange
   // The colour bar labels the banded samples and colours the means (an empty seriesIndex still draws the bar).
   const timeBar = timeMode && (timed.length > 0 || timeDrawn) && Number.isFinite(tMin)
+  if (reShown) {
+    const shown = figure ? zoom : (input.labelZoom ?? null)
+    const view = { x: zoomedRange(reShown.x, shown?.x), y: zoomedRange(reShown.y, shown?.y) }
+    // The screen measures its plotting area; an exported figure's is its size less the axes, title, legend and bar.
+    const estimate = input.size
+      ? {
+          width: input.size.width - AXES_MARGIN.width - (timeBar ? TIME_BAR_WIDTH : 0),
+          height: input.size.height - AXES_MARGIN.height - (top - GRID_TOP),
+        }
+      : null
+    const size = input.plot ?? estimate
+    const constructions = constructionSeries({ ...reShown, data, view, showSamples, fitColor, size }, theme)
+    series.push(...constructions.series)
+    legendNames.push(...constructions.legend)
+  }
 
   return mergeOptions(baseOption(theme), {
     grid: {
       left: 14,
-      right: timeBar ? 104 : 22,
+      right: timeBar ? 22 + TIME_BAR_WIDTH : 22,
       top,
       bottom: 12,
       outerBoundsMode: 'same',
@@ -351,12 +463,12 @@ export function xyChartOption(input: XYChartInput, theme: ChartTheme): EChartsOp
     tooltip: { trigger: 'item', triggerOn: 'none' },
     xAxis: valueAxis(theme, labels.x, {
       nameGap: 12,
-      ...axisRange(input.extent?.x),
+      ...axisRange(xRange, xSplits),
       axisLabel: edgeLabels(!!(input.zoomed?.x || zoom?.x)),
     }),
     yAxis: valueAxis(theme, labels.y, {
       nameGap: 14,
-      ...axisRange(input.extent?.y),
+      ...axisRange(yRange, ySplits),
       axisLabel: edgeLabels(!!(input.zoomed?.y || zoom?.y)),
     }),
     dataZoom: [
@@ -419,13 +531,18 @@ export function xyChartOption(input: XYChartInput, theme: ChartTheme): EChartsOp
 }
 
 /**
- * A fixed axis range (samples beyond it are clipped), or null min/max for the automatic extent. Always both keys: the
- * screen chart merges each new option into the last, so an omitted min/max would keep the previous plot's range.
+ * A fixed axis range (samples beyond it are clipped), or null min/max for the automatic extent, with the number of
+ * splits to aim for: a range the app rounded spans whole steps, so the ticks fall on its ends; else ECharts' default 5.
+ * Always every key: the screen chart merges each new option into the last, so an omitted min/max would keep the
+ * previous plot's range.
  */
-function axisRange(range: readonly [number, number] | null | undefined): { min: number | null; max: number | null } {
+function axisRange(
+  range: readonly [number, number] | null | undefined,
+  splits: number | null = null,
+): { min: number | null; max: number | null; splitNumber: number } {
   return range && Number.isFinite(range[0]) && Number.isFinite(range[1]) && range[1] > range[0]
-    ? { min: range[0], max: range[1] }
-    : { min: null, max: null }
+    ? { min: range[0], max: range[1], splitNumber: splits ?? 5 }
+    : { min: null, max: null, splitNumber: 5 }
 }
 
 /**

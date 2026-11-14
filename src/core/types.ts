@@ -178,9 +178,20 @@ export interface XYConfig {
   style: 'points' | 'lines' | 'both'
   /** 'series' = colour per y channel; 'group' = colour per test-point group (source 'points'); 'time' = sequential by time */
   colorBy: 'series' | 'group' | 'time'
-  fit: 'none' | 'linear' | 'poly2' | 'poly3'
+  /**
+   * Least-squares fit per colour entity: a polynomial, or a physical model from the parabolic drag polar (range and
+   * endurance, core/analysis/rangeEndurance.ts): 'power-model' y = A·V³ + B/V, 'drag-model' y = A·V² + B/V².
+   */
+  fit: 'none' | 'linear' | 'poly2' | 'poly3' | 'power-model' | 'drag-model'
   /** Fit through raw samples or through the test-point means */
   fitTarget: 'samples' | 'means'
+  /**
+   * Range and endurance markers on each fit: its minimum (maximum endurance) and the tangent from the origin
+   * (maximum range), with guide lines, labels and a results table. Absent = off (older files).
+   */
+  rangeEndurance?: boolean
+  /** Both axes start at zero (absent = off: the axes fit the data) */
+  axesFromZero?: boolean
   showSamples: boolean
   /** Mean ± 1σ marker per test point (source 'points') */
   showMeans: boolean

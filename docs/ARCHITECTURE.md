@@ -132,6 +132,26 @@ unit-tested modules next to them:
 - `channels/` (`ch-`): every channel with statistics, flags and a sparkline (`components/Sparkline`), search, filters
   and sort (`channelsTable.ts`), row actions, and the formula editor (`FormulaDialog`, checked by `formulaCheck.ts`).
 
+**Range and endurance (X–Y).** `core/analysis/rangeEndurance.ts` holds the maths: the power (A·V³ + B/V) and drag
+(A·V² + B/V²) models of the parabolic polar, linear least squares on scaled columns, with V_E and V_R in closed form
+(V_R/V_E = 3^¼), and the same two points for a polynomial by a dense scan of the fitted speeds ± half their span refined
+by bisection on f′ and V·f′ − f. A physical fit gives no speeds unless R² > 0 and A and B are each at least two
+standard errors above zero (`physicalProblem`), and with the test-point source but no test points yet (a preset on a
+fresh log plots every row) `XYView` holds every point back with `NEEDS_TEST_POINTS`. `XYConfig.fit` takes
+'power-model' / 'drag-model'; `rangeEndurance` and `axesFromZero` are optional flags (absent = off, so older sessions
+read unchanged; the markers also need a fit). `views/xy/xyRange.ts` gives each fit its result, the label texts and the
+construction colours (`constructionSlots`: aqua and orange, validated with the data's blue; both in ink, with a
+dash-dot V_R guide, when the data use either colour, since no fourth slot passes beside them).
+`charts/options/xyConstructions.ts` draws the guides, the origin tangent, opaque markers and labels. Each label is
+placed for the plotting area as drawn (the screen measures its size and zoom window after each render,
+`measureLabelArea`; an exported figure estimates its size and keeps its zoom) where it covers the fewest data, on one
+line, with "(extrapolated)" on a second line or short ("V_E = 72 kt"), and kept inside the grid, since ECharts does not
+clip series labels. `xyAxes.ts` sets the axis ranges the constructions need (round ends, ticks on whole steps). The
+MATLAB export repeats the same procedure (`xppFitCurve`, `xppRangeEndurance`, `xppDrawRangeEndurance`, colours from
+`xy.reSlot` / `xy.reInk` decided at run time) and writes `out/range_endurance.txt`; its numbers match the app's to
+rounding. The X–Y presets may create a formula channel on demand (total engine power, total thrust) through
+`saveDerived`.
+
 ## Charts
 
 - Import ECharts only from `charts/echarts.ts` (tree-shaken registration). Option builders live in `charts/options/`
@@ -198,14 +218,14 @@ unit-tested modules next to them:
   tests. Never commit flight logs (`.gitignore` blocks `samples/` and `Data*.txt`), nor numbers measured in them:
   fixtures and examples use synthetic values.
 - `npm run e2e` (scripts/e2e.mjs, after `npm run build`) drives the built app in a local Chrome/Edge with
-  playwright-core: landing, every tab with the demo in light and dark, a dragged selection saved as a test point,
-  optionally a real log (`--file`), a tablet width; screenshots go to `test-results/`. It fails on any console error,
+  playwright-core: landing, every tab with the demo in light and dark, a dragged selection saved as a test point, the
+  X–Y range-and-endurance preset, optionally a real log (`--file`), a tablet width; screenshots go to `test-results/`. It fails on any console error,
   so also on anything the Content-Security-Policy blocks. `--dist` serves another build folder (`vite build
   --outDir ...`) and `--port` another port, so several checks can run side by side.
   `node scripts/smoke.mjs <tab>` screenshots one tab from the dev server while working on it.
 - Stable `data-testid`s the e2e relies on: `landing`, `demo-button`, `file-input`, `loading-overlay`, `tab-<id>`,
   `view-<id>`, `time-mode-select`, `time-plot-area`, `selection-bar`, `save-point-button`, `save-point-confirm`,
-  `points-row`.
+  `points-row`, `xy-re-summary`, `xy-re-table` (the demo's range and endurance through the jet preset).
 - CI (GitHub Actions) runs lint, tests and the build before deploying to Pages. Its first step fails when a tracked
   file looks like flight data or an export of it (`*.txt`, `*.csv`, `*.tsv`, `*.dat`, `xpp_*.m`, session JSON,
   `out/`, `samples/`) or is over 1 MB. Only the deploy job may write to Pages; actions are pinned to commit SHAs

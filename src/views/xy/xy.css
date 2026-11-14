@@ -126,6 +126,50 @@
   flex-direction: column;
   gap: 8px;
 }
+
+/* The fits: None, Linear, Quadratic, Cubic on one row; the two physical models (name over equation) on the next. */
+.xy-fit-seg .segmented {
+  flex-wrap: wrap;
+}
+.xy-fit-seg .segmented-option {
+  flex: 1 1 calc(25% - 2px);
+}
+.xy-fit-seg .segmented-option.xy-fit-model {
+  flex: 1 1 calc(50% - 2px);
+  flex-direction: column;
+  gap: 0;
+  height: auto;
+  min-height: 40px;
+  padding: 3px 6px;
+  line-height: 16px;
+}
+.xy-fit-equation {
+  color: var(--text-subtle);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 400;
+}
+.segmented-option[aria-checked='true'] .xy-fit-equation {
+  color: inherit;
+}
+
+/* How range and endurance work: a short note under the fit controls. */
+.xy-help {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 17px;
+}
+.xy-help summary {
+  color: var(--text-muted);
+  font-weight: 600;
+  cursor: pointer;
+}
+.xy-help p {
+  margin-top: 6px;
+}
+.xy-help strong {
+  color: var(--text);
+}
 .xy-check-off {
   color: var(--text-subtle);
   cursor: not-allowed;
@@ -299,6 +343,39 @@
   color: var(--text-muted);
   font-size: 12px;
 }
+/* Range and endurance under the plot: the two speeds per fit, with the constructions' line keys. */
+.xy-re-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.xy-re-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.xy-re-name {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.xy-re-point {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.xy-re-warn {
+  color: var(--warning-text);
+  font-weight: 500;
+}
 .xy-tables-link {
   display: inline-flex;
   align-items: center;
@@ -414,6 +491,59 @@
 .xy-coefficient-name {
   color: var(--text-subtle);
   font-size: 12px;
+}
+.xy-re-table td {
+  vertical-align: top;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+.xy-re-table td.num {
+  white-space: nowrap;
+}
+.xy-re-series {
+  min-width: 260px;
+  max-width: 420px;
+}
+.xy-re-fit {
+  display: block;
+  margin-top: 2px;
+  padding-left: 18px;
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: normal;
+}
+/* A second, quieter line in a cell: "extrapolated", "model: 3^1/4 = 1.316". */
+.xy-re-aside {
+  display: block;
+  color: var(--text-subtle);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 15px;
+}
+.xy-re-warn .xy-re-aside {
+  color: inherit;
+}
+.xy-re-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--border-muted);
+  font-size: 12px;
+  line-height: 17px;
+  list-style: none;
+}
+.xy-re-notes li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.xy-re-notes svg {
+  flex: none;
+  align-self: center;
 }
 .xy-meansd {
   font-variant-numeric: tabular-nums;

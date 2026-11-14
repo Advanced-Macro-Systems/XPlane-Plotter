@@ -1,21 +1,25 @@
 // Small decisions behind the X–Y controls and chart chrome: the test-point group filter, which sources and options can
-// be chosen now, whether the chart is zoomed (and the zoom window an exported figure keeps), the chart's description,
-// the summary line and the export file names. Pure: no React, no DOM.
+// be chosen now, whether the chart is zoomed (and the zoom window an exported figure keeps), the plotting area the
+// construction labels are placed in, the chart's description, the summary line and the export file names. Pure: no
+// React, no DOM.
 
 import { formatNumber as formatCoefficient } from '../../core/analysis/fit'
 import { safeFilename } from '../../core/export/download'
 import type { RowRange, Workspace, XYConfig } from '../../core/types'
 import type { XYZoomSpec, XYZoomWindow } from '../../charts/options/xy'
-import { XY_ZOOM_X, XY_ZOOM_Y } from '../../charts/options/xy'
+import { XY_ZOOM_X, XY_ZOOM_Y, zoomedRange } from '../../charts/options/xy'
+import { niceRange } from '../../charts/options/xyAxes'
 import {
   FIT_NAME,
   SAMPLE_STRIDE,
+  fitStats,
   type MarkerShape,
   type XYData,
   type XYFit,
   type XYLabels,
   type XYMean,
 } from './xyModel'
+import { CONSTRUCTION_NAME, constructionSlots, dataSlots, type XYRange } from './xyRange'
 
 // ------------------------------------------------------------------ the test-point group filter
 
@@ -99,11 +103,25 @@ export function fitTargetOptions(withPoints: boolean): ChoiceOption<XYConfig['fi
   ]
 }
 
-export const FIT_OPTIONS: readonly { value: XYConfig['fit']; label: string }[] = [
-  { value: 'none', label: 'None' },
-  { value: 'linear', label: 'Linear' },
-  { value: 'poly2', label: 'Quadratic' },
-  { value: 'poly3', label: 'Cubic' },
+/** The fits: four polynomial choices, then the two physical models (each shown with its equation). */
+export const FIT_OPTIONS: readonly { value: XYConfig['fit']; label: string; equation?: string; title: string }[] = [
+  { value: 'none', label: 'None', title: 'No fit' },
+  { value: 'linear', label: 'Linear', title: 'Straight line: y = c₀ + c₁x' },
+  { value: 'poly2', label: 'Quadratic', title: 'y = c₀ + c₁x + c₂x²' },
+  { value: 'poly3', label: 'Cubic', title: 'y = c₀ + c₁x + c₂x² + c₃x³' },
+  {
+    value: 'power-model',
+    label: 'Power',
+    equation: 'A·V³ + B/V',
+    title:
+      'Power required from the parabolic drag polar: P = A·V³ + B/V (propeller aircraft: engine power against true airspeed)',
+  },
+  {
+    value: 'drag-model',
+    label: 'Drag/thrust',
+    equation: 'A·V² + B/V²',
+    title: 'Drag or thrust required from the parabolic drag polar: D = A·V² + B/V² (jets: thrust against true airspeed)',
+  },
 ]
 
 export const STYLE_OPTIONS: readonly { value: XYConfig['style']; label: string; title: string }[] = [
@@ -274,20 +292,8 @@ function axisFocus(series: SampleArrays, offset: 0 | 1): { range: [number, numbe
   return { range: [keptMin, keptMax], far: Math.abs(max - mid) >= Math.abs(min - mid) ? max : min }
 }
 
-/** A 1, 2 or 5 × 10ⁿ step near `raw`. */
-function niceStep(raw: number): number {
-  const power = 10 ** Math.floor(Math.log10(raw))
-  const f = raw / power
-  return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * power
-}
-
-/** The range widened to whole steps of a round number (about 6 steps across), without binary noise. */
-export function niceRange([lo, hi]: [number, number]): [number, number] {
-  if (!(hi > lo) || !Number.isFinite(lo) || !Number.isFinite(hi)) return [lo, hi]
-  const step = niceStep((hi - lo) / 6)
-  const clean = (v: number) => Number(v.toPrecision(12))
-  return [clean(Math.floor(lo / step) * step), clean(Math.ceil(hi / step) * step)]
-}
+/** The range widened to whole steps of a round number (about 6 steps across); shared with the chart option. */
+export { niceRange }
 
 /** Where to point the axes so a handful of absurd samples do not flatten the rest (see AxisFocus). */
 export function focusExtent(data: { series: SampleArrays; means: readonly Pick<XYMean, 'x' | 'yStats'>[] }): AxisFocus {
@@ -338,12 +344,12 @@ export function focusNote(
   focus: AxisFocus,
   data: Pick<XYData, 'x' | 'ys'>,
   showAll: boolean,
-  fits: readonly Pick<XYFit, 'fit' | 'target' | 'excluded'>[],
+  fits: readonly Pick<XYFit, 'fit' | 'physical' | 'target' | 'excluded'>[],
 ): string {
   const n = focus.outside
   const what = `${count(n)} extreme sample${n === 1 ? '' : 's'}`
   if (showAll) {
-    const fitted = fits.some((f) => f.fit && f.target === 'samples')
+    const fitted = fits.some((f) => fitStats(f) && f.target === 'samples')
     return `Showing everything, the ${what} included${fitted ? ' (in the fit too)' : ''}.`
   }
   const far = (name: string, value: number | null) =>
@@ -365,36 +371,112 @@ export { rampColor } from '../../charts/options/xy'
 
 // ------------------------------------------------------------------ legend chips
 
+/** How a line key is drawn, as the chart draws its line: solid, dashed (guides) or dotted (a fit with range and endurance). */
+export type LinePattern = 'solid' | 'dashed' | 'dotted'
+
 export interface LegendChip {
   key: string
   name: string
-  /** marker: a marker in the slot colour (or neutral ink); line: a line key; fit: the fit-line key; mean: mean ± 1σ */
-  kind: 'marker' | 'line' | 'fit' | 'mean'
+  /**
+   * marker: a marker in the slot colour (or neutral ink); line: a line key; fit: the fit-line key; mean: mean ± 1σ;
+   * guide: a range-and-endurance construction in its colour
+   */
+  kind: 'marker' | 'line' | 'fit' | 'mean' | 'guide'
   /** Colour slot 0..7, or null for neutral ink */
   slot: number | null
   shape: MarkerShape
+  /**
+   * Line keys (line, fit, guide): drawn like their line. The fit is dotted with range and endurance on; the
+   * endurance guides are dashed; the range construction is the solid tangent from the origin.
+   */
+  line?: LinePattern
 }
 
 /**
  * The chips above the chart: one per colour entity (Y channel or test-point group) and per Y channel shape when shape
- * tells channels apart, then the fit line and the mean marker. Samples drawn only as lines get a line key.
+ * tells channels apart, then the fit line, the mean marker and the range and endurance constructions drawn (in their
+ * colours, constructionSlots). Samples drawn only as lines get a line key.
  */
-export function legendChips(data: XYData, fits: readonly XYFit[], fit: XYConfig['fit'], style: XYConfig['style']): LegendChip[] {
+export function legendChips(
+  data: XYData,
+  fits: readonly XYFit[],
+  fit: XYConfig['fit'],
+  style: XYConfig['style'],
+  re: readonly XYRange[] | null = null,
+): LegendChip[] {
   const asLine = style === 'lines' && data.effective.colorBy !== 'time'
-  const chips: LegendChip[] = data.legend.map((e) => ({
-    key: e.key,
-    name: e.name,
-    kind: e.kind === 'colour' && asLine ? 'line' : 'marker',
-    slot: e.kind === 'colour' ? e.slot : null,
-    shape: e.shape,
-  }))
-  if (fit !== 'none' && fits.some((f) => f.fit && f.curve.length >= 4)) {
-    chips.push({ key: 'fit', name: FIT_NAME[fit], kind: 'fit', slot: null, shape: 'circle' })
+  const chips: LegendChip[] = data.legend.map((e) => {
+    const line = e.kind === 'colour' && asLine
+    return {
+      key: e.key,
+      name: e.name,
+      kind: line ? 'line' : 'marker',
+      slot: e.kind === 'colour' ? e.slot : null,
+      shape: e.shape,
+      ...(line ? { line: 'solid' as const } : {}),
+    }
+  })
+  if (fit !== 'none' && fits.some((f) => fitStats(f) && f.curve.length >= 4)) {
+    chips.push({ key: 'fit', name: FIT_NAME[fit], kind: 'fit', slot: null, shape: 'circle', line: re ? 'dotted' : 'solid' })
   }
   if (data.effective.showMeans && data.means.length) {
     chips.push({ key: 'mean', name: 'Test-point mean ± 1σ', kind: 'mean', slot: null, shape: 'circle' })
   }
+  const slots = constructionSlots(dataSlots(data))
+  if (re?.some((r) => r.re.endurance)) {
+    chips.push({ key: 're-e', name: CONSTRUCTION_NAME.endurance, kind: 'guide', slot: slots.endurance, shape: 'circle', line: 'dashed' })
+  }
+  if (re?.some((r) => r.re.range)) {
+    chips.push({ key: 're-r', name: CONSTRUCTION_NAME.range, kind: 'guide', slot: slots.range, shape: 'circle', line: 'solid' })
+  }
   return chips
+}
+
+// ------------------------------------------------------------------ where the construction labels go
+
+/** The plotting area as drawn on screen, for placing the range and endurance labels (charts/options/xyConstructions). */
+export interface LabelArea {
+  /** Its size in pixels */
+  plot: { width: number; height: number }
+  /** The zoom window it shows (null: the whole axes) */
+  zoom: XYZoomWindow | null
+}
+
+/** The fixed range [min, max] of the first axis of `key` in a chart option, or null. */
+function optionAxisRange(option: unknown, key: 'xAxis' | 'yAxis'): [number, number] | null {
+  if (typeof option !== 'object' || option === null) return null
+  const list = (option as Record<string, unknown>)[key]
+  const axis = (Array.isArray(list) ? list[0] : list) as { min?: unknown; max?: unknown } | undefined
+  return axis && isNum(axis.min) && isNum(axis.max) && axis.max > axis.min ? [axis.min, axis.max] : null
+}
+
+/**
+ * The X–Y chart's plotting area from its current option (chart.getOption(): the axis ranges the app set and the zoom
+ * window) and `toPixel` (chart.convertToPixel on the grid): the shown window's corners in pixels give its size. null
+ * when the axes have no fixed range (there are no constructions then) or the size is not positive.
+ */
+export function measureLabelArea(option: unknown, toPixel: (value: number[]) => number[] | null): LabelArea | null {
+  const xRange = optionAxisRange(option, 'xAxis')
+  const yRange = optionAxisRange(option, 'yAxis')
+  if (!xRange || !yRange) return null
+  const zoom = figureZoom(option)
+  const x = zoomedRange(xRange, zoom?.x)
+  const y = zoomedRange(yRange, zoom?.y)
+  const low = toPixel([x[0], y[0]])
+  const high = toPixel([x[1], y[1]])
+  if (!low || !high || !low.every(isNum) || !high.every(isNum)) return null
+  const width = Math.round(high[0] - low[0])
+  const height = Math.round(low[1] - high[1])
+  return width > 0 && height > 0 ? { plot: { width, height }, zoom } : null
+}
+
+/** Whether two label areas place the labels alike: sizes within a pixel, zoom windows equal to 6 significant figures. */
+export function sameLabelArea(a: LabelArea | null, b: LabelArea | null): boolean {
+  if (!a || !b) return a === b
+  if (Math.abs(a.plot.width - b.plot.width) > 1 || Math.abs(a.plot.height - b.plot.height) > 1) return false
+  const key = (zoom: XYZoomWindow | null) =>
+    JSON.stringify(zoom, (_name, value: unknown) => (typeof value === 'number' ? Number(value.toPrecision(6)) : value))
+  return key(a.zoom) === key(b.zoom)
 }
 
 // ------------------------------------------------------------------ words
@@ -417,13 +499,25 @@ export function plotSummary(data: XYData, groupNames: readonly string[], showSam
   return parts.join(' · ')
 }
 
-/** The chart's accessible description: what is plotted against what, how, and with which fit. */
-export function chartDescription(data: XYData, labels: XYLabels, fits: readonly XYFit[], fit: XYConfig['fit']): string {
+/** The chart's accessible description: what is plotted against what, how, with which fit and constructions. */
+export function chartDescription(
+  data: XYData,
+  labels: XYLabels,
+  fits: readonly XYFit[],
+  fit: XYConfig['fit'],
+  re: readonly XYRange[] | null = null,
+): string {
   const e = data.effective
   const what = e.showMeans && data.means.length ? 'samples and test-point means (± 1σ)' : 'samples'
-  const fitted = fits.filter((f) => f.fit).length
+  const fitted = fits.filter((f) => fitStats(f)).length
   const fitText = fit !== 'none' && fitted ? `, ${FIT_NAME[fit].toLowerCase()}${fitted > 1 ? 's' : ''} through the ${e.fitTarget === 'means' ? 'means' : 'samples'}` : ''
-  return `X–Y plot of ${labels.y} against ${labels.x}: ${what}${fitText}`
+  const unit = data.x?.meta.unit ? ` ${data.x.meta.unit}` : ''
+  const found = (re ?? []).flatMap((r) => [
+    r.re.endurance ? `maximum endurance at ${formatCoefficient(r.re.endurance.v)}${unit}` : '',
+    r.re.range ? `maximum range at ${formatCoefficient(r.re.range.v)}${unit}` : '',
+  ])
+  const reText = found.some(Boolean) ? `; ${found.filter(Boolean).join(', ')}` : ''
+  return `X–Y plot of ${labels.y} against ${labels.x}: ${what}${fitText}${reText}`
 }
 
 /** File-name stem for exports: "<file>_xy", e.g. "Data_737_xy". */

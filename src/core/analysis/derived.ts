@@ -171,6 +171,9 @@ const ALT_MSL = 'CG_ftMSL' // "___CG,ftMSL" geometric altitude of the CG above m
 const MAX_ENGINES = 16
 const thrustAlias = (k: number) => `thrst_${k}_lb` // "thrst,_1,lb"
 const fuelFlowAlias = (k: number) => `FF_${k}_lb_h` // "FF__1,_lb/h"
+/** Engine power: X-Plane 12 "engn1,___hp", X-Plane 8-11 "power,_1,hp" */
+const enginePowerAlias = (k: number) => `engn${k}_hp`
+const legacyPowerAlias = (k: number) => `power_${k}_hp`
 
 // Expression fragments (SI inside, converted at the end).
 const Q_PA = `0.5 * rho0 * (${KEAS} * kt2ms)^2`
@@ -203,6 +206,7 @@ export function availablePresets(ds: Dataset): DerivedPreset[] {
     Array.from({ length: MAX_ENGINES }, (_, i) => alias(i + 1)).filter(has)
   const thrusts = engines(thrustAlias)
   const fuelFlows = engines(fuelFlowAlias)
+  const powers = engines(enginePowerAlias).length ? engines(enginePowerAlias) : engines(legacyPowerAlias)
   const thrust = sum(thrusts)
   const fuelFlow = sum(fuelFlows)
   const engineCount = (n: number) => (n === 1 ? 'the engine' : `all ${n} engines`)
@@ -249,6 +253,18 @@ export function availablePresets(ds: Dataset): DerivedPreset[] {
       requires: thrusts,
     },
     thrusts.length >= 2,
+  )
+  add(
+    {
+      name: 'Total engine power',
+      unit: 'hp',
+      expression: powers.join(' + '),
+      description:
+        `Sum of the engine power of ${engineCount(powers.length)} (X-Plane "engn" hp outputs: shaft power on piston ` +
+        'and turboprop engines). Plot it against TAS for the range and endurance of a propeller aircraft.',
+      requires: powers,
+    },
+    powers.length >= 2,
   )
   add(
     {

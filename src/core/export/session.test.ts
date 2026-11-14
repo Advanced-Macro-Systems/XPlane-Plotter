@@ -63,6 +63,24 @@ describe('serializeSession / parseSession', () => {
     expect(parsed.workspace.xy).not.toHaveProperty('ySlots')
   })
 
+  it('keeps the range-and-endurance settings, and reads a session saved before them', () => {
+    const ws: Workspace = makeWorkspace()
+    ws.xy = { ...ws.xy, fit: 'power-model', rangeEndurance: true, axesFromZero: true }
+    expect(parseSession(serializeSession(ds, ws)).workspace.xy).toEqual(ws.xy)
+    const drag = makeWorkspace()
+    drag.xy = { ...drag.xy, fit: 'drag-model' }
+    expect(parseSession(serializeSession(ds, drag)).workspace.xy.fit).toBe('drag-model')
+    // Older sessions have neither flag: nothing appears; false flags are dropped like the other optional flags.
+    const older = parseSession(serializeSession(ds, makeWorkspace())).workspace.xy
+    expect(older).not.toHaveProperty('rangeEndurance')
+    expect(older).not.toHaveProperty('axesFromZero')
+    const off = sessionObject()
+    Object.assign(workspaceOf(off).xy as Record<string, unknown>, { rangeEndurance: false, axesFromZero: false })
+    const parsed = parseSession(JSON.stringify(off)).workspace.xy
+    expect(parsed).not.toHaveProperty('rangeEndurance')
+    expect(parsed).not.toHaveProperty('axesFromZero')
+  })
+
   it('names the file after the log: its stem, made safe, then .xpp-session.json', () => {
     expect(sessionFileName('Data_run1.txt')).toBe('Data_run1.xpp-session.json')
     expect(sessionFileName('Flight 2 / CG aft.csv')).toBe('Flight_2_CG_aft.xpp-session.json')
@@ -139,7 +157,9 @@ describe('parseSession errors', () => {
       [(f) => ((workspaceOf(f).panels as Record<string, unknown>[])[0].slots = 'blue'), /workspace\.panels\[0\]\.slots must be a list/],
       [(f) => ((workspaceOf(f).xy as Record<string, unknown>).ySlots = [1.5]), /workspace\.xy\.ySlots\[0\] must be a whole number/],
       [(f) => ((workspaceOf(f).derived as Record<string, unknown>[])[0].id = 'q'), /workspace\.derived\[0\]\.id must start with "fx:"/],
-      [(f) => ((workspaceOf(f).xy as Record<string, unknown>).fit = 'poly9'), /workspace\.xy\.fit must be one of "none", "linear", "poly2", "poly3"/],
+      [(f) => ((workspaceOf(f).xy as Record<string, unknown>).fit = 'poly9'), /workspace\.xy\.fit must be one of "none", "linear", "poly2", "poly3", "power-model", "drag-model"/],
+      [(f) => ((workspaceOf(f).xy as Record<string, unknown>).rangeEndurance = 'yes'), /workspace\.xy\.rangeEndurance must be true or false/],
+      [(f) => ((workspaceOf(f).xy as Record<string, unknown>).axesFromZero = 1), /workspace\.xy\.axesFromZero must be true or false/],
       [(f) => ((workspaceOf(f).xy as Record<string, unknown>).x = 7), /workspace\.xy\.x must be a channel id or null/],
       [(f) => ((workspaceOf(f).modes as Record<string, unknown>).source = 'somewhere'), /workspace\.modes\.source must be/],
       [(f) => (workspaceOf(f).timeBase = 'ch:'), /workspace\.timeBase must be/],

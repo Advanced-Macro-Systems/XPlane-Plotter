@@ -4,13 +4,13 @@
 import { ArrowSwitchIcon, ChevronDownIcon, InfoIcon, AlertIcon, XIcon } from '@primer/octicons-react'
 import { useEffect, useEffectEvent, useId, useMemo, useRef, useState } from 'react'
 import { ChannelPicker } from '../../components/ChannelPicker'
-import { Segmented } from '../../components/Segmented'
+import { Segmented, type SegmentedOption } from '../../components/Segmented'
 import { ViewSidebar } from '../../components/ViewSidebar'
 import { channelTitle } from '../../core/channels'
 import { channelById } from '../../core/dataset'
 import { sanitizeSlots } from '../../core/slots'
 import type { Dataset, RowRange, Workspace, XYConfig } from '../../core/types'
-import { setXY } from '../../store/app'
+import { saveDerived, setXY, toast } from '../../store/app'
 import { Dropdown } from '../../ui/Dropdown'
 import { MarkerGlyph } from './Glyphs'
 import {
@@ -23,7 +23,7 @@ import {
   visiblePointCounts,
 } from './xyControls'
 import { MAX_Y, unitMismatch, type MarkerShape, type XYData, type XYLabels } from './xyModel'
-import { availablePresets, matchingPreset, type ResolvedPreset } from './xyPresets'
+import { availablePresets, matchingPreset, withFormulaChannel, type ResolvedPreset } from './xyPresets'
 
 /**
  * Width of the sidebar's popups (presets, channel pickers): the sidebar's inner width (--sidebar-w 300 px less its
@@ -227,8 +227,8 @@ export function XYSidebar({ ds, ws, view, data, defaults }: XYSidebarProps) {
 
       <section className="view-sidebar-section">
         <h3 className="eyebrow">Fit</h3>
-        <div className="xy-seg">
-          <Segmented value={xy.fit} options={FIT_OPTIONS} onChange={(fit) => setXY({ fit })} ariaLabel="Fit" testId="xy-fit" />
+        <div className="xy-seg xy-fit-seg">
+          <Segmented value={xy.fit} options={fitOptions} onChange={(fit) => setXY({ fit })} ariaLabel="Fit" testId="xy-fit" />
         </div>
         <div className={`field${xy.fit === 'none' ? ' xy-field-off' : ''}`}>
           <span className="field-label">Fit through</span>
@@ -244,6 +244,51 @@ export function XYSidebar({ ds, ws, view, data, defaults }: XYSidebarProps) {
             />
           </div>
         </div>
+        <div className="xy-checks">
+          <label
+            className={`check${xy.fit === 'none' ? ' xy-check-off' : ''}`}
+            title={
+              xy.fit === 'none'
+                ? 'Choose a fit first'
+                : 'Mark each fit’s minimum (maximum endurance) and the tangent from the origin (maximum range)'
+            }
+          >
+            <input
+              type="checkbox"
+              data-testid="xy-range-endurance"
+              checked={xy.rangeEndurance === true && xy.fit !== 'none'}
+              disabled={xy.fit === 'none'}
+              onChange={(e) => setXY({ rangeEndurance: e.target.checked || undefined })}
+            />
+            Range &amp; endurance markers
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={xy.axesFromZero === true}
+              onChange={(e) => setXY({ axesFromZero: e.target.checked || undefined })}
+            />
+            Axes from zero
+          </label>
+        </div>
+        <details className="xy-help">
+          <summary>How range and endurance work</summary>
+          <p>
+            <strong>Propeller aircraft:</strong> plot engine power against true airspeed. The curve&apos;s lowest point is the
+            speed for maximum endurance, V<sub>E</sub> (least power, so least fuel per hour). The tangent from the origin
+            touches the curve where power per unit speed, that is drag, is least: the speed for maximum range, V<sub>R</sub>.
+          </p>
+          <p>
+            <strong>Jets:</strong> plot thrust (or drag) against true airspeed. Its lowest point (least drag) is maximum
+            endurance; the tangent from the origin (least thrust per unit speed) is maximum range.
+          </p>
+          <p>
+            The physical models come from the parabolic drag polar: power A·V³ + B/V, drag A·V² + B/V². For both,
+            V<sub>R</sub>/V<sub>E</sub> = 3<sup>¼</sup> ≈ 1.32. A constant scale on the speed (KIAS or KEAS at one altitude
+            instead of TAS) gives the same points in those units. The results hold for the weight and altitude flown: they
+            are not reduced to standard conditions.
+          </p>
+        </details>
       </section>
 
       <section className="view-sidebar-section">
@@ -256,6 +301,21 @@ export function XYSidebar({ ds, ws, view, data, defaults }: XYSidebarProps) {
     </ViewSidebar>
   )
 }
+
+/** The fits as segmented options: the physical models on a row of their own, each with its equation. */
+const fitOptions: SegmentedOption<XYConfig['fit']>[] = FIT_OPTIONS.map((o) => ({
+  value: o.value,
+  title: o.title,
+  className: o.equation ? 'xy-fit-model' : undefined,
+  label: o.equation ? (
+    <>
+      <span>{o.label}</span>
+      <span className="xy-fit-equation">{o.equation}</span>
+    </>
+  ) : (
+    o.label
+  ),
+}))
 
 const SECTIONS: ResolvedPreset['section'][] = ['Stability', 'Aerodynamics', 'Performance', 'Navigation']
 
@@ -291,8 +351,8 @@ function PresetMenu({ presets, active }: { presets: readonly ResolvedPreset[]; a
                     className="menu-item menu-item-stack xy-preset-item"
                     aria-current={p.id === active?.id ? 'true' : undefined}
                     onClick={() => {
-                      setXY(p.config)
                       close()
+                      applyPreset(p)
                     }}
                   >
                     <span>{p.name}</span>
@@ -306,6 +366,25 @@ function PresetMenu({ presets, active }: { presets: readonly ResolvedPreset[]; a
       )}
     </Dropdown>
   )
+}
+
+/**
+ * Applies a preset. One that plots a formula channel the file lacks (total engine power, total thrust) makes it first,
+ * as the Channels tab's formula presets do, and says so.
+ */
+function applyPreset(p: ResolvedPreset): void {
+  if (!p.formula) {
+    setXY(p.config)
+    return
+  }
+  const { name, unit, expression, slug } = p.formula
+  const made = saveDerived({ name, unit, expression }, slug)
+  if (!made.ok) {
+    toast(`Could not make the formula channel ${name}: ${made.error}`, 'error')
+    return
+  }
+  setXY(withFormulaChannel(p, made.id))
+  toast(`Made the formula channel “${name}” (${expression}) for this plot. It is listed under Formulas in Channels.`, 'success')
 }
 
 /** A label override: typed freely, saved after a pause, on Enter or on leaving the field. */

@@ -1,17 +1,30 @@
-// The X–Y plot's tables: fit results (equation, R², RMSE, n, coefficients ± standard error) and, with test points, the
-// mean ± σ of x and every Y channel per point. Both copy as TSV with plain numbers (paste into Excel or MATLAB).
+// The X–Y plot's tables: range and endurance (when its markers are on: V_E, V_R and the curve there, per fit), fit
+// results (equation, R², RMSE, n, coefficients ± standard error) and, with test points, the mean ± σ of x and every Y
+// channel per point. Each copies as TSV with plain numbers (paste into Excel or MATLAB).
 
-import { CopyIcon } from '@primer/octicons-react'
+import { AlertIcon, CopyIcon } from '@primer/octicons-react'
 import { useMemo } from 'react'
 import { MISSING, formatNumber } from '../../charts/format'
 import { channelTitle } from '../../core/channels'
+import { PHYSICAL_RATIO } from '../../core/analysis/rangeEndurance'
 import { copyText } from '../../core/export/download'
 import type { XYConfig } from '../../core/types'
 import { toast } from '../../store/app'
 import { formatMeanSd } from '../points/pointsModel'
 import { SlotSwatch } from './Glyphs'
 import type { XYData, XYFit } from './xyModel'
-import { fitRows, fitTableTsv, meanRows, meansTableTsv, type FitRow } from './xyTables'
+import type { XYRange } from './xyRange'
+import {
+  fitKindName,
+  fitRows,
+  fitTableTsv,
+  meanRows,
+  meansTableTsv,
+  rangeRows,
+  rangeTableTsv,
+  type FitRow,
+  type RangeRow,
+} from './xyTables'
 
 async function copyTable(text: string, what: string): Promise<void> {
   const ok = await copyText(text)
@@ -42,13 +55,25 @@ function r2Text(r2: number): string {
   return r2 >= 0.999 && r2 < 1 ? r2.toFixed(4) : r2.toFixed(3)
 }
 
-export function XYResults({ data, fits, fit }: { data: XYData; fits: readonly XYFit[]; fit: XYConfig['fit'] }) {
+export function XYResults({
+  data,
+  fits,
+  fit,
+  re,
+}: {
+  data: XYData
+  fits: readonly XYFit[]
+  fit: XYConfig['fit']
+  /** Range and endurance per fit; null when its markers are off */
+  re: readonly XYRange[] | null
+}) {
   const rows = useMemo(() => fitRows(data, fits), [data, fits])
   const means = useMemo(() => meanRows(data), [data])
   const showMeans = data.effective.source === 'points' && means.length > 0
 
   return (
     <div className="view-body xy-tables" id="xy-tables">
+      {re && <RangeTable data={data} results={re} />}
       <section className="card xy-table-card" data-testid="xy-fit-table" aria-labelledby="xy-fit-title">
         <header className="card-header">
           <div className="xy-table-title">
@@ -69,7 +94,7 @@ export function XYResults({ data, fits, fit }: { data: XYData; fits: readonly XY
         {rows.length === 0 ? (
           <p className="xy-table-empty">
             {fit === 'none'
-              ? 'No fit yet. Choose Linear, Quadratic or Cubic under Fit to see the equation, R² and coefficients here.'
+              ? 'No fit yet. Choose a fit under Fit to see the equation, R² and coefficients here.'
               : 'Nothing to fit: choose channels that have values.'}
           </p>
         ) : (
@@ -199,5 +224,149 @@ export function XYResults({ data, fits, fit }: { data: XYData; fits: readonly XY
         </section>
       )}
     </div>
+  )
+}
+
+/** A value with its unit for the range table ("72.41 kt"), '—' when missing. */
+function withUnit(value: number, unit: string): string {
+  if (!Number.isFinite(value)) return MISSING
+  return unit ? `${formatNumber(value, 4)} ${unit}` : formatNumber(value, 4)
+}
+
+function rangeSubtitle(rows: readonly RangeRow[]): string {
+  const through = rows[0]?.target === 'means' ? 'the test-point means' : 'the plotted samples'
+  return `Max endurance: the fitted curve's minimum. Max range: where the tangent from the origin touches it. Fits through ${through}; for the weight and altitude flown.`
+}
+
+/** The tangent's slope unit: "hp/kt". */
+function slopeUnit(row: RangeRow): string {
+  if (row.yUnit && row.xUnit) return `${row.yUnit}/${row.xUnit}`
+  return row.yUnit || (row.xUnit ? `1/${row.xUnit}` : '')
+}
+
+/**
+ * Range and endurance per fit: the two speeds and the curve there, the tangent's slope, V_R/V_E (beside 3^¼, the
+ * physical models' value), the fit, R² and n; extrapolation warnings and missing points under the table. Shown only
+ * with a fit chosen (XYView), so an empty table means the fit could not be made.
+ */
+function RangeTable({ data, results }: { data: XYData; results: readonly XYRange[] }) {
+  const rows = useMemo(() => rangeRows(data, results), [data, results])
+  const notes = rows.flatMap((r) => r.notes.map((note) => ({ key: `${r.key}|${note}`, name: r.name, note })))
+  return (
+    <section className="card xy-table-card" data-testid="xy-re-table" aria-labelledby="xy-re-title">
+      <header className="card-header">
+        <div className="xy-table-title">
+          <h3 className="card-title" id="xy-re-title">
+            Range &amp; endurance
+          </h3>
+          {rows.length > 0 && <span className="xy-table-sub">{rangeSubtitle(rows)}</span>}
+        </div>
+        <button
+          type="button"
+          className="btn btn-sm btn-ghost"
+          disabled={rows.length === 0}
+          onClick={() => void copyTable(rangeTableTsv(data, rows), 'range and endurance results')}
+        >
+          <CopyIcon size={14} /> Copy table
+        </button>
+      </header>
+      {rows.length === 0 ? (
+        <p className="xy-table-empty">No fit yet: the fit needs more points (see Fit results).</p>
+      ) : (
+        <>
+          <div className="xy-table-scroll">
+            <table className="table xy-table xy-re-table">
+              <thead>
+                <tr>
+                  <th scope="col">Series and fit</th>
+                  <th scope="col" className="num">
+                    V<sub>E</sub> max endurance
+                  </th>
+                  <th scope="col" className="num">
+                    y at V<sub>E</sub>
+                  </th>
+                  <th scope="col" className="num">
+                    V<sub>R</sub> max range
+                  </th>
+                  <th scope="col" className="num">
+                    y at V<sub>R</sub>
+                  </th>
+                  <th scope="col" className="num">
+                    y/V at V<sub>R</sub>
+                  </th>
+                  <th scope="col" className="num">
+                    V<sub>R</sub>/V<sub>E</sub>
+                  </th>
+                  <th scope="col" className="num">
+                    R²
+                  </th>
+                  <th scope="col" className="num">
+                    n
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.key}>
+                    <td className="xy-re-series">
+                      <span className="xy-series-cell" title={r.yTitle}>
+                        <SlotSwatch slot={r.slot} />
+                        <span className="xy-ellipsis">{r.name}</span>
+                      </span>
+                      <span className="xy-re-fit">
+                        {fitKindName(r.kind)}: {r.equation}
+                      </span>
+                    </td>
+                    <td className="num">
+                      <PointValue text={withUnit(r.endurance?.v ?? NaN, r.xUnit)} extrapolated={r.endurance?.extrapolated} />
+                    </td>
+                    <td className="num">{withUnit(r.endurance?.y ?? NaN, r.yUnit)}</td>
+                    <td className="num">
+                      <PointValue text={withUnit(r.range?.v ?? NaN, r.xUnit)} extrapolated={r.range?.extrapolated} />
+                    </td>
+                    <td className="num">{withUnit(r.range?.y ?? NaN, r.yUnit)}</td>
+                    <td className="num">{withUnit(r.slope, slopeUnit(r))}</td>
+                    <td className="num">
+                      {Number.isFinite(r.ratio) ? r.ratio.toFixed(3) : MISSING}
+                      <span className="xy-re-aside">
+                        {r.modelRatio === null ? 'polar: 3' : 'model: 3'}
+                        <sup>¼</sup> = {PHYSICAL_RATIO.toFixed(3)}
+                      </span>
+                    </td>
+                    <td className="num">{r2Text(r.r2)}</td>
+                    <td className="num">{r.n ? r.n.toLocaleString('en-GB') : MISSING}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {notes.length > 0 && (
+            <ul className="xy-re-notes" aria-label="Range and endurance notes">
+              {notes.map(({ key, name, note }) => (
+                <li key={key} className={note.includes('extrapolated') ? 'xy-re-warn' : 'xy-problem'}>
+                  <AlertIcon size={12} />
+                  <span>
+                    {rows.length > 1 ? `${name}: ` : ''}
+                    {note}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
+/** A speed in the range table, marked when it is extrapolated (the note under the table says where it lies). */
+function PointValue({ text, extrapolated }: { text: string; extrapolated?: boolean }) {
+  return extrapolated ? (
+    <span className="xy-re-warn" title="Extrapolated: outside the speeds of the points fitted">
+      {text}
+      <span className="xy-re-aside">extrapolated</span>
+    </span>
+  ) : (
+    <>{text}</>
   )
 }

@@ -23,13 +23,17 @@ import {
   chartDescription,
   focusNote,
   legendChips,
+  measureLabelArea,
   plotKey,
   rampColor,
+  sameLabelArea,
   type AxisFocus,
+  type LabelArea,
   type ZoomFlags,
 } from './xyControls'
 import { boxRanges, hitTest, meanTooltipHtml, pixelBox, sampleTooltipHtml, type Hit } from './xyHover'
 import { SAMPLE_STRIDE, type FitWindow, type XYData, type XYFit, type XYLabels } from './xyModel'
+import { constructionSlots, dataSlots, labelNumber, NEEDS_TEST_POINTS, type XYRange } from './xyRange'
 import { equationText, fitRows } from './xyTables'
 
 /** The parts of a zrender pointer event the view reads. */
@@ -124,8 +128,10 @@ function describeHit(hit: Hit, data: XYData, axis: TimeAxis, theme: ChartTheme):
 interface XYChartCardProps {
   data: XYData
   fits: readonly XYFit[]
+  /** Range and endurance per fit (null: its markers are off) */
+  re: readonly XYRange[] | null
   labels: XYLabels
-  xy: Pick<XYConfig, 'style' | 'showSamples' | 'fit'>
+  xy: Pick<XYConfig, 'style' | 'showSamples' | 'fit' | 'axesFromZero'>
   axis: TimeAxis
   chartRef: RefObject<ECharts | null>
   /** Where the axes point when a few absurd samples would flatten the rest */
@@ -137,7 +143,7 @@ interface XYChartCardProps {
   onShowAll: (all: boolean) => void
 }
 
-export function XYChartCard({ data, fits, labels, xy, axis, chartRef, focus, extent, showAll, onShowAll }: XYChartCardProps) {
+export function XYChartCard({ data, fits, re, labels, xy, axis, chartRef, focus, extent, showAll, onShowAll }: XYChartCardProps) {
   const theme = useChartTheme()
   const [zoomBox, setZoomBox] = useState(false)
   const [zoom, setZoom] = useState<ZoomFlags>({})
@@ -154,6 +160,37 @@ export function XYChartCard({ data, fits, labels, xy, axis, chartRef, focus, ext
     zoom: {},
   })
   const endDrag = useRef<(() => void) | null>(null)
+
+  // The range-and-endurance labels are placed in the plotting area as drawn, so they stay inside it on a phone's narrow
+  // plot and when zoomed: after each render (debounced, so a wheel zoom or a drag measures once it stops) the chart's
+  // plotting area and zoom window are measured; the option is rebuilt only when they change, and only while the labels
+  // are drawn. Until the first measurement the plot's size, rounded to 40 px, gives an estimate.
+  const plotRef = useRef<HTMLDivElement>(null)
+  const [plotSize, setPlotSize] = useState<{ width: number; height: number } | null>(null)
+  useEffect(() => {
+    const el = plotRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver((entries) => {
+      const box = entries[0]?.contentRect
+      if (!box) return
+      const next = { width: Math.round(box.width / 40) * 40, height: Math.round(box.height / 40) * 40 }
+      setPlotSize((old) => (old && old.width === next.width && old.height === next.height ? old : next))
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+  const [measured, setMeasured] = useState<LabelArea | null>(null)
+  const measureTimer = useRef(0)
+  const measureLabels = () => {
+    measureTimer.current = 0
+    const chart = live(chartRef)
+    if (!chart) return
+    const next = measureLabelArea(chart.getOption(), (value) => chart.convertToPixel(GRID, value) as number[] | null)
+    if (next) setMeasured((old) => (sameLabelArea(old, next) ? old : next))
+  }
+  useEffect(() => () => window.clearTimeout(measureTimer.current), [])
+  const area = re ? measured : null
+  const layoutSize = re && !area ? plotSize : null
 
   const time = useMemo(() => ({ label: axis.label, format: (v: number) => formatAxisValue(axis, v) }), [axis])
   // Rebuilt only when an axis starts or stops being zoomed (its end labels are hidden while it is), not per wheel tick.
@@ -172,14 +209,22 @@ export function XYChartCard({ data, fits, labels, xy, axis, chartRef, focus, ext
           zoomBox,
           extent,
           zoomed: { x: zoomedX, y: zoomedY },
+          re,
+          axesFromZero: xy.axesFromZero === true,
+          size: layoutSize,
+          plot: area?.plot ?? null,
+          labelZoom: area?.zoom ?? null,
         },
         theme,
       ),
-    [data, fits, xy.style, xy.showSamples, labels, time, zoomBox, extent, zoomedX, zoomedY, theme],
+    [data, fits, re, xy.style, xy.showSamples, xy.axesFromZero, labels, time, zoomBox, extent, zoomedX, zoomedY, theme, layoutSize, area],
   )
-  const chips = useMemo(() => legendChips(data, fits, xy.fit, xy.style), [data, fits, xy.fit, xy.style])
+  const chips = useMemo(() => legendChips(data, fits, xy.fit, xy.style, re), [data, fits, xy.fit, xy.style, re])
   const equations = useMemo(() => fitRows(data, fits), [data, fits])
-  const description = chartDescription(data, labels, fits, xy.fit)
+  const description = chartDescription(data, labels, fits, xy.fit, re)
+  const xUnit = data.x?.meta.unit ? ` ${data.x.meta.unit}` : ''
+  const found = (re ?? []).filter((r) => r.re.endurance || r.re.range)
+  const reSlots = constructionSlots(dataSlots(data))
 
   const hideHover = () => {
     const p = pointer.current
@@ -315,6 +360,12 @@ export function XYChartCard({ data, fits, labels, xy, axis, chartRef, focus, ext
         setZoom(next)
       }
     },
+    // Rendered (a new option, a zoom or pan step, a resize): measure where the construction labels go once it settles.
+    finished: () => {
+      if (!re) return
+      window.clearTimeout(measureTimer.current)
+      measureTimer.current = window.setTimeout(measureLabels, 120)
+    },
   }
 
   // A new option redraws the points: whatever was hovered may have moved or gone.
@@ -341,10 +392,8 @@ export function XYChartCard({ data, fits, labels, xy, axis, chartRef, focus, ext
           {chips.length >= 2 &&
             chips.map((c) => (
               <span key={c.key} className="series-chip xy-legend-chip" title={c.name}>
-                {c.kind === 'line' ? (
-                  <LineGlyph slot={c.slot} />
-                ) : c.kind === 'fit' ? (
-                  <LineGlyph slot={null} />
+                {c.kind === 'line' || c.kind === 'fit' || c.kind === 'guide' ? (
+                  <LineGlyph slot={c.slot} pattern={c.line} />
                 ) : c.kind === 'mean' ? (
                   <MeanGlyph slot={null} />
                 ) : (
@@ -376,7 +425,7 @@ export function XYChartCard({ data, fits, labels, xy, axis, chartRef, focus, ext
         </div>
       </div>
 
-      <div className={`xy-plot${zoomBox ? ' is-boxing' : ''}`}>
+      <div ref={plotRef} className={`xy-plot${zoomBox ? ' is-boxing' : ''}`}>
         <EChart
           option={option}
           replaceMerge={XY_REPLACE_MERGE}
@@ -430,6 +479,42 @@ export function XYChartCard({ data, fits, labels, xy, axis, chartRef, focus, ext
                 <ArrowDownIcon size={12} /> Fit details
               </a>
             </li>
+          </ul>
+        )}
+        {re && re.length > 0 && (
+          <ul className="xy-re-summary" aria-label="Range and endurance" data-testid="xy-re-summary">
+            {found.length === 0 && (
+              <li className="xy-equation-problem">
+                {re.every((r) => r.re.enduranceNote === NEEDS_TEST_POINTS)
+                  ? NEEDS_TEST_POINTS
+                  : 'No minimum or tangent from the origin on this fit: the table below says why.'}
+              </li>
+            )}
+            {found.map((r) => (
+              <li key={r.key} className="xy-re-item">
+                {found.length > 1 && <span className="xy-re-name">{r.fit.name}:</span>}
+                {r.re.endurance && (
+                  <span className="xy-re-point">
+                    <LineGlyph slot={reSlots.endurance} pattern="dashed" />
+                    <span>
+                      Max endurance V<sub>E</sub> = {labelNumber(r.re.endurance.v)}
+                      {xUnit}
+                      {r.re.endurance.extrapolated && <span className="xy-re-warn"> (extrapolated)</span>}
+                    </span>
+                  </span>
+                )}
+                {r.re.range && (
+                  <span className="xy-re-point">
+                    <LineGlyph slot={reSlots.range} pattern="solid" />
+                    <span>
+                      Max range V<sub>R</sub> = {labelNumber(r.re.range.v)}
+                      {xUnit}
+                      {r.re.range.extrapolated && <span className="xy-re-warn"> (extrapolated)</span>}
+                    </span>
+                  </span>
+                )}
+              </li>
+            ))}
           </ul>
         )}
       </div>

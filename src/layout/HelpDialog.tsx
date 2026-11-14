@@ -147,7 +147,34 @@ function UseHelp() {
       <h3>X–Y plot</h3>
       <p>
         Plot any channel against another, through every sample, the zoom range or the test points (as means ± σ), with linear,
-        quadratic or cubic fits and their R²: lift curve, drag polar, elevator to trim against C<sub>L</sub>.
+        quadratic or cubic fits, or the power (A·V³ + B/V) and drag (A·V² + B/V²) models of the parabolic drag polar, and
+        their R²: lift curve, drag polar, elevator to trim against C<sub>L</sub>.
+      </p>
+
+      <h3>Range and endurance</h3>
+      <ol className="sh-help-steps">
+        <li>
+          In Time history, <strong>Select</strong> a steady level stretch at one speed and <strong>Save test point</strong>;
+          repeat at several speeds.
+        </li>
+        <li>
+          In X–Y plot choose the preset <strong>Range &amp; endurance — propeller</strong> (engine power against TAS) or{' '}
+          <strong>— jet</strong> (thrust against TAS). It fits the physical model through the test-point means, turns on{' '}
+          <strong>Range &amp; endurance markers</strong> and <strong>Axes from zero</strong>, and makes a twin&apos;s total
+          power or thrust channel.
+        </li>
+        <li>
+          The curve&apos;s minimum is the speed for maximum endurance, V<sub>E</sub>; the tangent from the origin touches it
+          at the speed for maximum range, V<sub>R</sub>. Both are in the Range &amp; endurance table under the plot, flagged
+          when they lie outside the test points; the MATLAB export draws the same figure and writes{' '}
+          <code>out/range_endurance.txt</code>.
+        </li>
+      </ol>
+      <p className="sh-help-note">
+        Propellers: power is least at V<sub>E</sub>, power per speed (drag) at V<sub>R</sub>. Jets: thrust (drag) is least at
+        V<sub>E</sub>, thrust per speed at V<sub>R</sub>. For the physical models V<sub>R</sub>/V<sub>E</sub> = 3<sup>¼</sup>.
+        KIAS or KEAS at one altitude give the same points in those units. Results hold for the weight and altitude flown (not
+        reduced to standard conditions).
       </p>
 
       <h3>Dynamic modes</h3>

@@ -200,7 +200,10 @@ describe('matlabScript', () => {
     const text = body(script())
     expect(text).toContain("xy.x = D(:, col('elev1,__deg', 1));")
     expect(text).toContain("xy.source = 'points';")
+    expect(text).toMatch(/^xy\.fitModel = 'poly'; +%/m)
     expect(text).toContain('xy.fitDegree = 1;')
+    expect(text).toMatch(/^xy\.rangeEndurance = false; +%/m)
+    expect(text).toMatch(/^xy\.axesFromZero = false; +%/m)
     expect(text).toContain("xy.fitTarget = 'means';")
     expect(text).toContain("xy.xLabel = 'elev1 [deg]';")
     for (const c of SERIES_COLORS) expect(text).toContain(c.hex)
@@ -244,9 +247,93 @@ describe('matlabScript', () => {
       expect(text).toContain('members = find(ismember(pointGroup, units{iUnit}) & ~pointHidden);')
       // Each row once, as the app's disjoint ranges: overlapping test points do not weigh twice in a sample fit.
       expect(text).toContain('rows = unique(vertcat(pointRows{members}));')
-      expect(text).toContain('fitLog = xppDrawFit(ax, xs, ys, equation, label, color, outside, fitLog);')
+      expect(text).toContain('fitLog = xppDrawFit(ax, fitResult, label, color, outside, fitLog, xy.rangeEndurance);')
       expect(text).not.toContain('for iGroup')
     }
+  })
+
+  it('fits the physical models and draws range and endurance as the app does, writing out/range_endurance.txt', () => {
+    const ws = makeWorkspace()
+    const on = { ...ws, xy: { ...ws.xy, fit: 'power-model' as const, rangeEndurance: true, axesFromZero: true } }
+    const text = script({}, sampleDataset(), on)
+    const main = body(text)
+    expect(main).toMatch(/^xy\.fitModel = 'power'; +%/m)
+    expect(main).toMatch(/^xy\.fitDegree = 0; +%/m)
+    expect(main).toMatch(/^xy\.rangeEndurance = true; +%/m)
+    expect(main).toMatch(/^xy\.axesFromZero = true; +%/m)
+    // Endurance aqua (slot 2 -> row 3), range orange (slot 1 -> row 2), as in the app; both in ink when the data are
+    // drawn in either colour (the slots used are collected while plotting, so xy.colorBy can be switched in MATLAB).
+    expect(main).toMatch(/^xy\.reSlot = \[3 2\]; +%/m)
+    expect(main).toMatch(/^xy\.reInk = \[23 43 77\] \/ 255; +%/m)
+    expect(main).toContain('usedSlots(end + 1) = groupSlot(units{iUnit}); %#ok<SAGROW>')
+    expect(main.split('usedSlots(end + 1) = xy.ySlot(iY); %#ok<SAGROW>')).toHaveLength(3)
+    expect(main).toContain('reColors = seriesColors(xy.reSlot, :);\n    if any(ismember(xy.reSlot, usedSlots))\n        reColors = [xy.reInk; xy.reInk];')
+    expect(matlabLibrary(['xppDrawRangeEndurance']).join('\n')).toContain("if isequal(colors(1, :), colors(2, :))\n    rangeGuide = '-.';")
+    expect(main).toContain("xy.xUnit = 'deg';")
+    expect(main).toContain("xy.yUnit = {'kt'};")
+    expect(main).toContain("entry = struct('fit', fitResult, 're', xppRangeEndurance(fitResult), 'label', label, ...")
+    expect(main).toContain('reList{end + 1} = entry; %#ok<SAGROW>')
+    expect(main).toContain('xppDrawRangeEndurance(ax, reList, xy.axesFromZero, reColors, xy.xUnit);')
+    expect(main).toContain("reFile = fopen(fullfile(outDir, 'range_endurance.txt'), 'w');")
+    expect(text).toContain('%   - range and endurance (X-Y fit) -> out/range_endurance.txt')
+    const defined = definedFunctions(text)
+    const helpers = [
+      'xppFitCurve',
+      'xppPhysicalFit',
+      'xppRangeEndurance',
+      'xppBisect',
+      'xppInteriorMin',
+      'xppDrawRangeEndurance',
+      'xppReReport',
+      'xppReLabel',
+      'xppPlaceLabel',
+      'xppObstacles',
+      'xppNiceRange',
+      'xppAxesFromZero',
+    ]
+    for (const name of helpers) expect(defined, name).toContain(name)
+    // The drag model, and a fit with markers off: the helpers are still there (switchable in MATLAB).
+    const drag = body(script({}, sampleDataset(), { ...ws, xy: { ...ws.xy, fit: 'drag-model' } }))
+    expect(drag).toMatch(/^xy\.fitModel = 'drag'; +%/m)
+    expect(drag).toMatch(/^xy\.rangeEndurance = false; +%/m)
+    const none = script({}, sampleDataset(), { ...ws, xy: { ...ws.xy, fit: 'none', rangeEndurance: true } })
+    expect(body(none)).toMatch(/^xy\.fitModel = 'none'; +%/m)
+    // Markers need a fit: off without one, and nothing is listed as an output.
+    expect(body(none)).toMatch(/^xy\.rangeEndurance = false; +%/m)
+    expect(none).not.toContain('%   - range and endurance (X-Y fit) -> out/range_endurance.txt')
+    expect(definedFunctions(none)).toContain('xppRangeEndurance')
+  })
+
+  it('holds range and endurance back as the app does: no test points yet, or a physical fit that explains nothing', () => {
+    const ws = makeWorkspace()
+    const fresh = { ...ws, points: [], xy: { ...ws.xy, fit: 'drag-model' as const, rangeEndurance: true } }
+    const text = script({}, sampleDataset(), fresh)
+    const main = body(text)
+    // The app plots every row until there are test points, and gives no speeds from that.
+    expect(main).toMatch(/^xy\.source = 'all'; +%/m)
+    expect(main).toMatch(/^xy\.rangeEndurance = false; +%/m)
+    expect(main).toContain('range and endurance are off, as in the app, until there are steady level test points.')
+    expect(text).not.toContain('%   - range and endurance (X-Y fit) -> out/range_endurance.txt')
+    // A physical fit needs R² > 0 and A and B each two standard errors above zero (physicalProblem).
+    const lib = matlabLibrary(['xppRangeEndurance']).join('\n')
+    expect(lib).toContain('elseif ~(f.r2 > 0)')
+    expect(lib).toContain('elseif a < 2 * f.aSe || b < 2 * f.bSe')
+  })
+
+  it('mirrors the app: closed forms for the physical models, scan and bisection for polynomials', () => {
+    const lib = matlabLibrary(['xppRangeEndurance', 'xppPhysicalFit']).join('\n')
+    // Same columns and scaling as core/analysis/rangeEndurance.ts physicalFit.
+    expect(lib).toContain('ref = sqrt(min(v) * max(v));')
+    expect(lib).toContain('M = [u .^ p, u .^ q];')
+    expect(lib).toContain('vE = (b / (3 * a)) ^ 0.25;')
+    expect(lib).toContain('vR = (3 * b / a) ^ 0.25;')
+    // The same search window (RE_MARGIN 0.5, RE_FLOOR 0.1), scan (RE_SCAN 2000) and bisection midpoint.
+    expect(lib).toContain('margin = 0.5 * (f.xMax - f.xMin);')
+    expect(lib).toContain('floorSpeed = 0.1 * f.xMin;')
+    expect(lib).toContain('n = 2000;')
+    expect(lib).toContain("vs = lo + (hi - lo) * (0:n)' / n;")
+    expect(lib).toContain('m = a + (b - a) / 2;')
+    expect(lib).toContain('tangent = c .* ((numel(c) - 1:-1:0) - 1);')
   })
 
   it('writes the X–Y axis ranges the app showed and fits through the samples inside them only', () => {
@@ -254,11 +341,11 @@ describe('matlabScript', () => {
     expect(text).toMatch(/^xy\.xLimits = \[-5 20\]; +%/m)
     expect(text).toMatch(/^xy\.yLimits = \[\]; +%/m)
     expect(text).toContain('[fitRows, outside] = xppOnAxes(xy.x, xy.y{iY}, rows, xy.xLimits, xy.yLimits);')
-    expect(text).toContain('[xs, ys, equation] = xppPolyFit(xy.x(fitRows), xy.y{iY}(fitRows), xy.fitDegree);')
+    expect(text).toContain('fitResult = xppFitCurve(xy.x(fitRows), xy.y{iY}(fitRows), xy.fitModel, xy.fitDegree);')
     expect(text).toContain('xlim(ax, xy.xLimits);')
     expect(text).toContain('ylim(ax, xy.yLimits);')
     // The means fit is not limited (the app keeps every mean in view).
-    expect(text).toContain('[xs, ys, equation] = xppPolyFit(M(:, 1), M(:, 3), xy.fitDegree);')
+    expect(text).toContain('fitResult = xppFitCurve(M(:, 1), M(:, 3), xy.fitModel, xy.fitDegree);')
     expect(definedFunctions(script())).toEqual(expect.arrayContaining(['xppOnAxes', 'xppDrawFit']))
     // No limits (or unusable ones): automatic axes.
     expect(body(script())).toMatch(/^xy\.xLimits = \[\]; +%/m)

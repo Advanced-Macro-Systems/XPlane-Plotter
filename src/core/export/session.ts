@@ -287,8 +287,11 @@ function parseXY(xy: Record<string, unknown>): XYConfig {
     ...(xy.groups !== undefined ? { groups: strList(xy.groups, at('groups')) } : {}),
     style: oneOf(xy.style, ['points', 'lines', 'both'] as const, at('style')),
     colorBy: oneOf(xy.colorBy, ['series', 'group', 'time'] as const, at('colorBy')),
-    fit: oneOf(xy.fit, ['none', 'linear', 'poly2', 'poly3'] as const, at('fit')),
+    fit: oneOf(xy.fit, ['none', 'linear', 'poly2', 'poly3', 'power-model', 'drag-model'] as const, at('fit')),
     fitTarget: oneOf(xy.fitTarget, ['samples', 'means'] as const, at('fitTarget')),
+    // Optional (sessions saved before range and endurance have neither): kept only when on.
+    ...(xy.rangeEndurance !== undefined && bool(xy.rangeEndurance, at('rangeEndurance')) ? { rangeEndurance: true } : {}),
+    ...(xy.axesFromZero !== undefined && bool(xy.axesFromZero, at('axesFromZero')) ? { axesFromZero: true } : {}),
     showSamples: bool(xy.showSamples, at('showSamples')),
     showMeans: bool(xy.showMeans, at('showMeans')),
     title: str(xy.title, at('title')),

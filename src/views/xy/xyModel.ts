@@ -6,6 +6,7 @@
 import { channelTitle } from '../../core/channels'
 import { channelById } from '../../core/dataset'
 import { evalPoly, polyFit, type PolyFit } from '../../core/analysis/fit'
+import { physicalFit, physicalValue, type PhysicalFit, type PhysicalModel } from '../../core/analysis/rangeEndurance'
 import type { RangeStats } from '../../core/analysis/stats'
 import { sanitizeSlots } from '../../core/slots'
 import type { Channel, Dataset, PointGroup, RowRange, TestPoint, TimeAxis, Workspace, XYConfig } from '../../core/types'
@@ -443,6 +444,9 @@ function legendEntries(base: Pick<XYData, 'ys' | 'effective' | 'series'>): XYLeg
 
 // ------------------------------------------------------------------ fits
 
+/** A fit that is drawn: a polynomial or a physical model (XYConfig.fit other than 'none'). */
+export type FitKind = Exclude<XYConfig['fit'], 'none'>
+
 export interface XYFit {
   key: string
   /** e.g. "Trim points", "Trim points · Elevator", "Elevator [deg]" */
@@ -450,9 +454,14 @@ export interface XYFit {
   slot: number
   y: XYChannel
   group: PointGroup | null
+  kind: FitKind
+  /** Polynomial degree (1–3); 0 for a physical model */
   degree: number
   target: XYConfig['fitTarget']
+  /** The polynomial fit (kind linear, poly2, poly3), or null */
   fit: PolyFit | null
+  /** The physical-model fit (kind power-model, drag-model), or null */
+  physical: PhysicalFit | null
   /** Samples left out of the fit because they lie off the axes (see FitWindow) */
   excluded: number
   /** Why there is no fit ('' when there is one) */
@@ -467,25 +476,60 @@ export interface FitWindow {
   y: readonly [number, number] | null
 }
 
-export const FIT_DEGREE: Record<XYConfig['fit'], number> = { none: 0, linear: 1, poly2: 2, poly3: 3 }
+/** Polynomial degree of each fit setting (0: none, or a physical model). */
+export const FIT_DEGREE: Record<XYConfig['fit'], number> = {
+  none: 0,
+  linear: 1,
+  poly2: 2,
+  poly3: 3,
+  'power-model': 0,
+  'drag-model': 0,
+}
+/** Coefficients each fit has (the distinct x values it needs). */
+export const FIT_PARAMETERS: Record<XYConfig['fit'], number> = {
+  none: 0,
+  linear: 2,
+  poly2: 3,
+  poly3: 4,
+  'power-model': 2,
+  'drag-model': 2,
+}
+/** The physical model behind each physical fit setting. */
+export const FIT_MODEL: Partial<Record<XYConfig['fit'], PhysicalModel>> = { 'power-model': 'power', 'drag-model': 'drag' }
 export const FIT_NAME: Record<XYConfig['fit'], string> = {
   none: 'No fit',
   linear: 'Linear fit',
   poly2: 'Quadratic fit',
   poly3: 'Cubic fit',
+  'power-model': 'Power model fit',
+  'drag-model': 'Drag model fit',
 }
 
 /** Points along a curve (a straight line needs only its ends). */
 const CURVE_POINTS = 96
 
+/** The fit's goodness and range, whichever kind it is; null when there is no fit. */
+export function fitStats(f: Pick<XYFit, 'fit' | 'physical'>): Pick<PolyFit, 'r2' | 'rmse' | 'n' | 'xMin' | 'xMax'> | null {
+  return f.fit ?? f.physical
+}
+
+/** The fitted curve's value at x (NaN without a fit). */
+export function fitValue(f: Pick<XYFit, 'fit' | 'physical'>, x: number): number {
+  if (f.fit) return evalPoly(f.fit.coeffs, x)
+  if (f.physical) return physicalValue(f.physical, x)
+  return NaN
+}
+
 /**
  * One fit per colour entity: per group and Y channel when colouring by group, otherwise per Y channel (all of its
  * samples or means pooled). Through the raw samples (exact values, read back by row; only those inside `within`
- * when given) or the test-point means.
+ * when given) or the test-point means. A physical model uses only points at positive x (speeds).
  */
 export function computeFits(data: XYData, fit: XYConfig['fit'], within: FitWindow | null = null): XYFit[] {
-  const degree = FIT_DEGREE[fit]
-  if (!degree || data.empty || !data.x) return []
+  if (fit === 'none' || data.empty || !data.x) return []
+  const kind: FitKind = fit
+  const degree = FIT_DEGREE[kind]
+  const model = FIT_MODEL[kind] ?? null
   const xValues = data.x.values
   const target = data.effective.fitTarget
   const fits: XYFit[] = []
@@ -517,24 +561,32 @@ export function computeFits(data: XYData, fit: XYConfig['fit'], within: FitWindo
       xs = xs.subarray(0, n)
       ys = ys.subarray(0, n)
     }
-    const result = xs.length ? polyFit(xs, ys, degree) : null
+    const poly = model || !xs.length ? null : polyFit(xs, ys, degree)
+    const physical = model && xs.length ? physicalFit(xs, ys, model) : null
     const what = target === 'means' ? 'test-point means' : 'samples'
+    const usable = model ? Float64Array.from(xs).filter((v) => v > 0) : xs
+    const ok = poly !== null || physical !== null
     fits.push({
       key: s.key,
       name: s.name,
       slot: s.slot,
       y: s.y,
       group: s.group,
+      kind,
       degree,
       target,
-      fit: result,
+      fit: poly,
+      physical,
       excluded,
-      problem: result
+      problem: ok
         ? ''
-        : xs.length
-          ? `Needs ${degree + 1} or more ${what} with different x values (has ${distinctCount(xs)}).`
-          : `No ${what} to fit.`,
-      curve: result ? fitCurve(result) : [],
+        : usable.length
+          ? `Needs ${FIT_PARAMETERS[kind]} or more ${what} with different ${model ? 'positive ' : ''}x values ` +
+            `(has ${distinctCount(usable)}).`
+          : model && xs.length
+            ? `A ${model} model needs ${what} at positive x (speeds).`
+            : `No ${what} to fit.`,
+      curve: poly ? fitCurve(poly) : physical ? physicalCurve(physical) : [],
     })
   }
   return fits
@@ -551,6 +603,16 @@ export function fitCurve(fit: PolyFit): number[] {
   for (let i = 0; i < n; i += 1) {
     const x = fit.xMin + ((fit.xMax - fit.xMin) * i) / (n - 1)
     out.push(x, evalPoly(fit.coeffs, x))
+  }
+  return out
+}
+
+/** The physical model sampled over [xMin, xMax] (or between any two speeds). */
+export function physicalCurve(fit: PhysicalFit, from = fit.xMin, to = fit.xMax): number[] {
+  const out: number[] = []
+  for (let i = 0; i < CURVE_POINTS; i += 1) {
+    const x = from + ((to - from) * i) / (CURVE_POINTS - 1)
+    out.push(x, physicalValue(fit, x))
   }
   return out
 }

@@ -381,6 +381,7 @@ export function matlabScript(opts: MatlabExportOptions): string {
   const outputs: string[] = []
   if (opts.include.points && ws.points.length) outputs.push('test-point table -> out/test_points.csv')
   if (xy?.figure) outputs.push('X-Y plot -> out/xy.png, out/xy.pdf')
+  if (xy?.figure && rangeEnduranceOn(ws)) outputs.push('range and endurance (X-Y fit) -> out/range_endurance.txt')
   if (time?.figure) outputs.push('time histories -> out/time_history.png, out/time_history.pdf')
   if (modes?.figure) outputs.push('mode fit -> out/mode_fit.png, out/mode_fit.pdf, out/mode_fit.txt')
 
@@ -652,12 +653,17 @@ function xySection(w: ScriptWriter, ds: Dataset, ws: Workspace, opts: MatlabExpo
   const usePoints = config.source === 'points' && ws.points.length > 0
   const source = usePoints ? 'points' : config.source === 'points' ? 'all' : config.source
   const viewRows = opts.view ? w.rows(opts.view) : null
-  const degree = { none: 0, linear: 1, poly2: 2, poly3: 3 }[config.fit]
+  const degree = { none: 0, linear: 1, poly2: 2, poly3: 3, 'power-model': 0, 'drag-model': 0 }[config.fit]
+  const model = { none: 'none', linear: 'poly', poly2: 'poly', poly3: 'poly', 'power-model': 'power', 'drag-model': 'drag' }[
+    config.fit
+  ]
+  const rangeEndurance = rangeEnduranceOn(ws)
   const xLabel = config.xLabel.trim() || titleOf(ds, config.x)
   const yLabel = config.yLabel.trim() || sharedLabel(ys.map((y) => y.ch))
-  for (const helper of ['xppFigure', 'xppExport', 'xppSamples', 'xppPolyFit', 'xppStats', 'xppOnAxes', 'xppDrawFit']) {
-    w.helpers.add(helper)
-  }
+  const helpers = ['xppFigure', 'xppExport', 'xppSamples', 'xppFitCurve', 'xppStats', 'xppOnAxes', 'xppDrawFit']
+  // Range and endurance and axes from zero can be switched on in MATLAB: their helpers are always there.
+  helpers.push('xppRangeEndurance', 'xppDrawRangeEndurance', 'xppReReport', 'xppAxesFromZero')
+  for (const helper of helpers) w.helpers.add(helper)
 
   // Defined whatever the source, so xy.source can be switched in MATLAB.
   const viewLine = viewRows
@@ -667,7 +673,10 @@ function xySection(w: ScriptWriter, ds: Dataset, ws: Workspace, opts: MatlabExpo
   const lines = [
     "% Settings from the app's X-Y tab (edit them and re-run to change the figure).",
     ...(config.source === 'points' && !usePoints
-      ? ['% (The app plotted test points, but there were none when this script was exported: all rows are used.)']
+      ? [
+          '% (The app plotted test points, but there were none when this script was exported: all rows are used, and',
+          '% range and endurance are off, as in the app, until there are steady level test points.)',
+        ]
       : []),
     'xy = struct();',
     `xy.x = ${xExpr};   % ${commentText(titleOf(ds, config.x))}`,
@@ -698,10 +707,21 @@ function xySection(w: ScriptWriter, ds: Dataset, ws: Workspace, opts: MatlabExpo
     setting(`xy.showSamples = ${config.showSamples};`, 'the raw samples'),
     setting(`xy.showMeans = ${config.showMeans};`, 'mean +/- 1 standard deviation of each visible test point'),
     setting(
-      `xy.fitDegree = ${degree};`,
-      'polynomial fit: 0 none, 1 linear, 2 quadratic, 3 cubic (one per colour: per group or per y channel)',
+      `xy.fitModel = '${model}';`,
+      "fit (one per colour: per group or per y channel): 'none', 'poly', 'power' or 'drag' (below)",
     ),
+    setting(`xy.fitDegree = ${degree};`, "polynomial degree for 'poly': 1 linear, 2 quadratic, 3 cubic"),
+    "%                               'power': y = A*V^3 + B/V, 'drag': y = A*V^2 + B/V^2 (parabolic drag polar, V > 0)",
     setting(`xy.fitTarget = '${config.fitTarget}';`, "fit through the test-point 'means' or the raw 'samples'"),
+    setting(
+      `xy.rangeEndurance = ${rangeEndurance};`,
+      'mark max endurance (minimum) and max range (tangent from the origin) -> out/range_endurance.txt',
+    ),
+    setting(`xy.axesFromZero = ${config.axesFromZero === true};`, 'both axes start at zero'),
+    setting('xy.reSlot = [3 2];', 'rows of seriesColors of the constructions: max endurance (aqua), max range (orange)'),
+    setting('xy.reInk = [23 43 77] / 255;', 'both in this ink when the data are drawn in aqua or orange, as in the app'),
+    `xy.xUnit = ${matlabString(xCh?.meta.unit ?? '')};`,
+    `xy.yUnit = ${cellColumn(ys.map((y) => y.ch.meta.unit))};`,
     setting(`xy.xLimits = ${limitsLiteral(opts.xyLimits?.x)};`, 'x axis range the app showed ([] = automatic)'),
     setting(
       `xy.yLimits = ${limitsLiteral(opts.xyLimits?.y)};`,
@@ -710,6 +730,15 @@ function xySection(w: ScriptWriter, ds: Dataset, ws: Workspace, opts: MatlabExpo
     ...XY_CODE,
   ]
   return { lines, figure: true }
+}
+
+/**
+ * Range and endurance in the X–Y figure, as the app shows them: with a fit chosen, and not while the settings ask for
+ * test points the log does not have yet (the app then plots every row and says to save steady level points first).
+ */
+function rangeEnduranceOn(ws: Workspace): boolean {
+  const config = ws.xy
+  return config.rangeEndurance === true && config.fit !== 'none' && !(config.source === 'points' && ws.points.length === 0)
 }
 
 /** An axis range as a MATLAB row [lo hi], or [] (automatic) when there is none. */
@@ -739,6 +768,9 @@ const XY_CODE = [
   "    yMarker = 'o';",
   'end',
   'fitLog = {};             % fit equations, printed below',
+  'reList = {};             % each fit with its range and endurance (xy.rangeEndurance)',
+  'reReport = {};',
+  'usedSlots = [];          % the colour slots the data are drawn in (the constructions keep clear of them)',
   "if strcmp(xy.source, 'points')",
   "    % As in the app, one colour (and one fit) per plotted group when colouring by group; otherwise one per y channel",
   "    % with the points of every plotted group pooled.",
@@ -757,12 +789,14 @@ const XY_CODE = [
   '            end',
   "            if strcmp(xy.colorBy, 'group')",
   '                color = seriesColors(groupSlot(units{iUnit}), :);',
+  '                usedSlots(end + 1) = groupSlot(units{iUnit}); %#ok<SAGROW>',
   '                label = groupName{units{iUnit}};',
   '                if numel(xy.y) > 1',
   "                    label = sprintf('%s - %s', label, xy.yName{iY});",
   '                end',
   '            else',
   '                color = seriesColors(xy.ySlot(iY), :);',
+  '                usedSlots(end + 1) = xy.ySlot(iY); %#ok<SAGROW>',
   '                label = xy.yName{iY};',
   '            end',
   '            rows = unique(vertcat(pointRows{members}));   % a row two points share counts once, as in the app',
@@ -782,15 +816,18 @@ const XY_CODE = [
   "                    'Color', color, 'MarkerFaceColor', color, 'MarkerSize', 7, 'LineStyle', 'none', ...",
   "                    'CapSize', 4, 'LineWidth', 1, 'DisplayName', [label ' (mean ' char(177) ' 1' char(963) ')']);",
   '            end',
-  '            if xy.fitDegree > 0',
+  "            if ~strcmp(xy.fitModel, 'none')",
   "                if strcmp(xy.fitTarget, 'means')",
-  '                    [xs, ys, equation] = xppPolyFit(M(:, 1), M(:, 3), xy.fitDegree);',
+  '                    fitResult = xppFitCurve(M(:, 1), M(:, 3), xy.fitModel, xy.fitDegree);',
   '                    outside = 0;',
   '                else',
   '                    [fitRows, outside] = xppOnAxes(xy.x, xy.y{iY}, rows, xy.xLimits, xy.yLimits);',
-  '                    [xs, ys, equation] = xppPolyFit(xy.x(fitRows), xy.y{iY}(fitRows), xy.fitDegree);',
+  '                    fitResult = xppFitCurve(xy.x(fitRows), xy.y{iY}(fitRows), xy.fitModel, xy.fitDegree);',
   '                end',
-  '                fitLog = xppDrawFit(ax, xs, ys, equation, label, color, outside, fitLog);',
+  '                fitLog = xppDrawFit(ax, fitResult, label, color, outside, fitLog, xy.rangeEndurance);',
+  "                entry = struct('fit', fitResult, 're', xppRangeEndurance(fitResult), 'label', label, ...",
+  "                    'color', color, 'yUnit', xy.yUnit{iY}, 'target', xy.fitTarget);",
+  '                reList{end + 1} = entry; %#ok<SAGROW>',
   '            end',
   '        end',
   '    end',
@@ -801,14 +838,18 @@ const XY_CODE = [
   '    end',
   '    for iY = 1:numel(xy.y)',
   '        color = seriesColors(xy.ySlot(iY), :);',
+  '        usedSlots(end + 1) = xy.ySlot(iY); %#ok<SAGROW>',
   '        if xy.showSamples',
   "            xppSamples(ax, xy.x, xy.y{iY}, rows, xy.style, xy.colorBy, color, el, xy.yName{iY}, ...",
   "                ~strcmp(xy.colorBy, 'time'));",
   '        end',
-  '        if xy.fitDegree > 0',
+  "        if ~strcmp(xy.fitModel, 'none')",
   '            [fitRows, outside] = xppOnAxes(xy.x, xy.y{iY}, rows, xy.xLimits, xy.yLimits);',
-  '            [xs, ys, equation] = xppPolyFit(xy.x(fitRows), xy.y{iY}(fitRows), xy.fitDegree);',
-  '            fitLog = xppDrawFit(ax, xs, ys, equation, xy.yName{iY}, 0.6 * color, outside, fitLog);',
+  '            fitResult = xppFitCurve(xy.x(fitRows), xy.y{iY}(fitRows), xy.fitModel, xy.fitDegree);',
+  '            fitLog = xppDrawFit(ax, fitResult, xy.yName{iY}, 0.6 * color, outside, fitLog, xy.rangeEndurance);',
+  "            entry = struct('fit', fitResult, 're', xppRangeEndurance(fitResult), 'label', xy.yName{iY}, ...",
+  "                'color', 0.6 * color, 'yUnit', xy.yUnit{iY}, 'target', 'samples');",
+  '            reList{end + 1} = entry; %#ok<SAGROW>',
   '        end',
   '    end',
   'end',
@@ -819,6 +860,20 @@ const XY_CODE = [
   'if ~isempty(xy.yLimits)',
   '    ylim(ax, xy.yLimits);',
   'end',
+  "% Range and endurance (as in the app): each fit's minimum (max endurance) and the tangent from the origin (max range),",
+  '% with guides and labels; the axes take in both points (and zero, with xy.axesFromZero).',
+  "if xy.rangeEndurance && ~strcmp(xy.fitModel, 'none')",
+  '    % Aqua and orange, unless the data are drawn in either (a second test-point group is orange): then both in ink,',
+  '    % told apart by their line styles (the V_R guide dash-dot), as in the app.',
+  '    reColors = seriesColors(xy.reSlot, :);',
+  '    if any(ismember(xy.reSlot, usedSlots))',
+  '        reColors = [xy.reInk; xy.reInk];',
+  '    end',
+  '    xppDrawRangeEndurance(ax, reList, xy.axesFromZero, reColors, xy.xUnit);',
+  '    reReport = xppReReport(reList, xy.xUnit);',
+  'elseif xy.axesFromZero',
+  '    xppAxesFromZero(ax);',
+  'end',
   "if strcmp(xy.colorBy, 'time') && xy.showSamples",
   '    timeBar = colorbar(ax);',
   "    timeBar.Label.String = 'Elapsed time [s]';",
@@ -828,10 +883,25 @@ const XY_CODE = [
   'if ~isempty(xy.title)',
   "    title(ax, xy.title, 'Interpreter', 'none');",
   'end',
-  "legend(ax, 'Location', 'best', 'Interpreter', 'none');",
+  "xyLegend = legend(ax, 'Location', 'best', 'Interpreter', 'none');",
+  'if ~isempty(reReport)',
+  '    % Range and endurance: a smaller legend; from zero, the curve rises to the right and the upper left is free.',
+  '    xyLegend.FontSize = 8;',
+  '    if xy.axesFromZero',
+  "        xyLegend.Location = 'northwest';",
+  '    end',
+  'end',
   'if ~isempty(fitLog)',
   "    fprintf('X-Y fits:\\n');",
   "    fprintf('  %s\\n', fitLog{:});",
+  'end',
+  'if ~isempty(reReport)',
+  "    fprintf('\\n');",
+  "    fprintf('%s\\n', reReport{:});",
+  "    reFile = fopen(fullfile(outDir, 'range_endurance.txt'), 'w');",
+  "    fprintf(reFile, '%s\\n', reReport{:});",
+  '    fclose(reFile);',
+  "    fprintf('Range and endurance -> %s\\n', fullfile(outDir, 'range_endurance.txt'));",
   'end',
   "xppExport(fig, fullfile(outDir, 'xy'), showFigures);",
 ]

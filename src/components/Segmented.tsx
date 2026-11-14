@@ -5,6 +5,8 @@ export interface SegmentedOption<T extends string> {
   label: ReactNode
   title?: string
   disabled?: boolean
+  /** Extra class on the option's button (e.g. an option laid out on a row of its own) */
+  className?: string
 }
 
 /**
@@ -44,7 +46,7 @@ export function Segmented<T extends string>({
           type="button"
           role="radio"
           aria-checked={o.value === value}
-          className="segmented-option"
+          className={o.className ? `segmented-option ${o.className}` : 'segmented-option'}
           title={disabled ? undefined : o.title}
           disabled={disabled || o.disabled}
           onClick={() => onChange(o.value)}

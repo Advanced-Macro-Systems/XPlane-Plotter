@@ -6,8 +6,9 @@
 //
 // It serves dist/ (or --dist, a build made with `vite build --outDir`, so several checks can run side by side) with
 // `vite preview`, opens the landing page, loads the demo flight and (optionally) a real log through
-// the real file input, visits every tab in light and dark, drags a selection and saves a test point, and screenshots each
-// step into --out. It fails (exit 1) on any console error, page error or failed step.
+// the real file input, visits every tab in light and dark, drags a selection and saves a test point, picks the X–Y
+// range-and-endurance preset on the demo, and screenshots each step into --out. It fails (exit 1) on any console error,
+// page error or failed step.
 
 import { spawn } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
@@ -141,6 +142,24 @@ async function saveSelectionAsPoint(page, shotName) {
   if (shotName) await shot(page, `${shotName}-points`)
 }
 
+/**
+ * X–Y range and endurance on the demo: the jet preset (it makes the Total thrust formula), the constructions' summary
+ * under the plot and the results table with both speeds.
+ */
+async function rangeEndurance(page, shotName) {
+  await page.getByTestId('tab-xy').click()
+  await page.getByTestId('view-xy').waitFor()
+  await page.getByRole('button', { name: 'Plot preset' }).click()
+  await page.getByRole('menuitem', { name: /^Range & endurance — jet/ }).click()
+  await page.getByTestId('xy-re-summary').waitFor({ state: 'visible', timeout: 5000 })
+  const table = page.getByTestId('xy-re-table')
+  await table.waitFor({ state: 'visible', timeout: 5000 })
+  const text = await table.innerText()
+  if ((text.match(/\d+(\.\d+)? kt/g) ?? []).length < 2) throw new Error(`no V_E and V_R in the table: ${text.slice(0, 200)}`)
+  await sleep(600)
+  await shot(page, shotName)
+}
+
 const server = startServer()
 let browser
 try {
@@ -175,6 +194,10 @@ try {
 
   await step('select + save test point (demo)', async () => {
     await saveSelectionAsPoint(page, 'demo')
+  })
+
+  await step('X–Y range and endurance (demo)', async () => {
+    await rangeEndurance(page, 'demo-xy-range-endurance')
   })
 
   await setTheme(page, 'dark')

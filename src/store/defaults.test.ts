@@ -109,6 +109,27 @@ describe('sanitizeWorkspace', () => {
     expect(ws.tracked).toEqual(['alpha,__deg'])
   })
 
+  it('keeps the physical fits and the range-and-endurance flags; anything else falls back', () => {
+    const ds = dataset()
+    const xy = (input: Record<string, unknown>) =>
+      sanitizeWorkspace({ version: 1, xy: { x: 'alpha,__deg', ys: ['pitch,__deg'], ...input } }, ds).xy
+    expect(xy({ fit: 'power-model', rangeEndurance: true, axesFromZero: true })).toMatchObject({
+      fit: 'power-model',
+      rangeEndurance: true,
+      axesFromZero: true,
+    })
+    expect(xy({ fit: 'drag-model' }).fit).toBe('drag-model')
+    const odd = xy({ fit: 'cubic-spline', rangeEndurance: 'yes', axesFromZero: 1 })
+    expect(odd.fit).toBe('none')
+    expect(odd).not.toHaveProperty('rangeEndurance')
+    expect(odd).not.toHaveProperty('axesFromZero')
+    // An older workspace (no flags) reads as before.
+    const old = xy({ fit: 'poly2' })
+    expect(old.fit).toBe('poly2')
+    expect(old).not.toHaveProperty('rangeEndurance')
+    expect(old).not.toHaveProperty('axesFromZero')
+  })
+
   it('keeps each channel’s colour slot, dropping a missing channel with its own', () => {
     const ds = dataset()
     const ws = sanitizeWorkspace(

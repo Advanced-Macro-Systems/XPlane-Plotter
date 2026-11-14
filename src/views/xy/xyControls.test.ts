@@ -12,9 +12,11 @@ import {
   focusNote,
   focusedAxes,
   legendChips,
+  measureLabelArea,
   niceRange,
   plotSummary,
   rampColor,
+  sameLabelArea,
   sourceOptions,
   toggleGroupFilter,
   visiblePointCounts,
@@ -107,6 +109,30 @@ describe('zoom', () => {
     expect(figureZoom({ dataZoom: [{ id: XY_ZOOM_X, start: 0, end: 100 }] })).toBeNull()
     expect(figureZoom(undefined)).toBeNull()
   })
+
+  it('measures the plotting area the construction labels go in, and the zoom window it shows', () => {
+    const option = {
+      xAxis: [{ min: 0, max: 200 }],
+      yAxis: [{ min: 0, max: 50 }],
+      dataZoom: [
+        { id: XY_ZOOM_X, start: 25, end: 75 },
+        { id: XY_ZOOM_Y, start: 0, end: 100 },
+      ],
+    }
+    // A grid of 700 × 400 px with its top left at (60, 20), showing x from 50 to 150 (25–75 % of 0–200), y from 0 to 50.
+    const toPixel = ([x, y]: number[]) => [60 + ((x - 50) / 100) * 700, 20 + 400 - (y / 50) * 400]
+    const area = measureLabelArea(option, toPixel)
+    expect(area).toEqual({ plot: { width: 700, height: 400 }, zoom: { x: { start: 25, end: 75 } } })
+    // No fixed axis range (the app sets one with the constructions), or no pixels: nothing measured.
+    expect(measureLabelArea({ ...option, xAxis: [{ min: null, max: null }] }, toPixel)).toBeNull()
+    expect(measureLabelArea(option, () => null)).toBeNull()
+    // Re-placing the labels waits for a real change: a pixel of size, or the zoom window beyond 6 significant figures.
+    expect(sameLabelArea(area, { plot: { width: 701, height: 400 }, zoom: { x: { start: 25.0000001, end: 75 } } })).toBe(true)
+    expect(sameLabelArea(area, { plot: { width: 703, height: 400 }, zoom: area!.zoom })).toBe(false)
+    expect(sameLabelArea(area, { plot: area!.plot, zoom: { x: { start: 30, end: 75 } } })).toBe(false)
+    expect(sameLabelArea(area, { plot: area!.plot, zoom: null })).toBe(false)
+    expect(sameLabelArea(null, null)).toBe(true)
+  })
 })
 
 describe('focusExtent', () => {
@@ -158,7 +184,7 @@ describe('focusExtent', () => {
   it('says what is off the axes, whether the fit left it out, and how to see it', () => {
     const focus = { x: null, y: [0, 1] as [number, number], outside: 297, xFar: null, yFar: -5.007e8 }
     const data = { x: channel('alpha', [0], 'α', 'deg'), ys: [{ ch: channel('cl', [0], 'CL', ''), index: 0, slot: 0 }] }
-    const fitted = [{ fit: {} as never, target: 'samples' as const, excluded: 297 }]
+    const fitted = [{ fit: {} as never, physical: null, target: 'samples' as const, excluded: 297 }]
     expect(focusNote(focus, data, false, fitted)).toBe(
       '297 extreme samples (CL down to −5.007×10⁸) are off the axes and out of the fit, so the rest can be read.',
     )

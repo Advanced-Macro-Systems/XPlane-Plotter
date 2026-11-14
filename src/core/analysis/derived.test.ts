@@ -401,6 +401,19 @@ describe('availablePresets', () => {
     const sar = presets.find((p) => p.id === 'specific_air_range') as DerivedPreset
     expect(evaluatePreset(three, sar)[0]).toBeCloseTo(2, 12)
 
+    // Engine power of a twin (X-Plane 12 "engn1,___hp", or the X-Plane 8–11 "power,_1,hp"): its total, for range and
+    // endurance of a propeller aircraft.
+    const twinProp = makeDataset([
+      ['engn1,___hp', [150]],
+      ['engn2,___hp', [148]],
+    ])
+    const totalPower = availablePresets(twinProp).find((p) => p.id === 'total_engine_power') as DerivedPreset
+    expect(totalPower).toMatchObject({ name: 'Total engine power', unit: 'hp', expression: 'engn1_hp + engn2_hp' })
+    expect(evaluatePreset(twinProp, totalPower)[0]).toBe(298)
+    const legacy = availablePresets(makeDataset([['power,_1,hp', [1]], ['power,_2,hp', [2]]]))
+    expect(legacy.find((p) => p.id === 'total_engine_power')?.expression).toBe('power_1_hp + power_2_hp')
+    expect(availablePresets(makeDataset([['engn1,___hp', [1]]])).map((p) => p.id)).not.toContain('total_engine_power')
+
     const single = makeDataset([
       ['thrst,_1,lb', [100]],
       ['FF__1,_lb/h', [10]],

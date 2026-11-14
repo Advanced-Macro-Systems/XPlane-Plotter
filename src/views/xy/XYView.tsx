@@ -20,6 +20,7 @@ import { XYSidebar } from './XYSidebar'
 import { XYResults } from './XYResults'
 import { exportStem, figureZoom, focusExtent, focusedAxes, plotKey, plotSummary } from './xyControls'
 import { buildXYData, computeFits, defaultLabels, finalLabels, type XYDataConfig } from './xyModel'
+import { NEEDS_TEST_POINTS, rangeResults } from './xyRange'
 import { samplesCsv } from './xyTables'
 import './xy.css'
 
@@ -72,19 +73,28 @@ function useXYModel(ds: Dataset, ws: Workspace, view: RowRange | null, axis: Tim
   const showAll = showAllFor === key
   const extent = useMemo(() => focusedAxes(focus, showAll), [focus, showAll])
   const fits = useMemo(() => computeFits(data, xy.fit, extent), [data, xy.fit, extent])
+  // Range and endurance of every fit, when its markers are on and there is a fit (null = off, as the sidebar's checkbox
+  // and the MATLAB export have it). When the settings ask for test points and there are none yet (a range and
+  // endurance preset on a fresh log), every row is plotted: no speeds from that, the table says to save points first.
+  const reOn = xy.rangeEndurance === true && xy.fit !== 'none'
+  const needsPoints = xy.source === 'points' && data.effective.source !== 'points'
+  const re = useMemo(
+    () => (reOn ? rangeResults(fits, needsPoints ? NEEDS_TEST_POINTS : '') : null),
+    [fits, reOn, needsPoints],
+  )
   const defaults = useMemo(() => defaultLabels(data.x, data.ys.map((y) => y.ch)), [data])
   const labels = useMemo(
     () => finalLabels({ title: xy.title, xLabel: xy.xLabel, yLabel: xy.yLabel }, defaults),
     [xy.title, xy.xLabel, xy.yLabel, defaults],
   )
   const onShowAll = (all: boolean) => setShowAllFor(all ? key : null)
-  return { data, fits, defaults, labels, focus, showAll, extent, onShowAll }
+  return { data, fits, re, defaults, labels, focus, showAll, extent, onShowAll }
 }
 
 function XYWorkspace({ ds, ws, axis }: { ds: Dataset; ws: Workspace; axis: TimeAxis }) {
   const view = useApp((s) => s.view)
   const xy = ws.xy
-  const { data, fits, defaults, labels, focus, showAll, extent, onShowAll } = useXYModel(ds, ws, view, axis)
+  const { data, fits, re, defaults, labels, focus, showAll, extent, onShowAll } = useXYModel(ds, ws, view, axis)
   const chartRef = useRef<ECharts | null>(null)
 
   const groupNames = ws.groups.filter((g) => data.effective.groupIds.includes(g.id)).map((g) => g.name)
@@ -103,6 +113,10 @@ function XYWorkspace({ ds, ws, axis }: { ds: Dataset; ws: Workspace; axis: TimeA
         time: { label: axis.label, format: (v) => formatAxisValue(axis, v) },
         extent,
         figure: { zoom },
+        re,
+        axesFromZero: xy.axesFromZero === true,
+        // The construction labels are placed for the figure's size and the zoom window it keeps.
+        size: FIGURE,
       },
       readChartTheme('paper'),
     )
@@ -173,6 +187,7 @@ function XYWorkspace({ ds, ws, axis }: { ds: Dataset; ws: Workspace; axis: TimeA
             <XYChartCard
               data={data}
               fits={fits}
+              re={re}
               labels={labels}
               xy={xy}
               axis={axis}
@@ -184,7 +199,7 @@ function XYWorkspace({ ds, ws, axis }: { ds: Dataset; ws: Workspace; axis: TimeA
             />
           )}
         </div>
-        {!data.empty && <XYResults data={data} fits={fits} fit={xy.fit} />}
+        {!data.empty && <XYResults data={data} fits={fits} fit={xy.fit} re={re} />}
       </div>
     </div>
   )

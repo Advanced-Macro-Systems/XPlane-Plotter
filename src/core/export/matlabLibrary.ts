@@ -506,6 +506,11 @@ end`,
     deps: [],
     code: String.raw`function xppExport(fig, file, show)
 %XPPEXPORT Saves a figure as file.png (300 dpi) and file.pdf (vector), then closes it unless figures are shown.
+%   The axes toolbars are hidden first: a figure on screen shows one while the pointer is over it, and it must never
+%   end up in the files.
+for exportAxes = reshape(findall(fig, 'Type', 'axes'), 1, [])
+    exportAxes.Toolbar.Visible = 'off';
+end
 exportgraphics(fig, [file '.png'], 'Resolution', 300, 'BackgroundColor', 'white');
 exportgraphics(fig, [file '.pdf'], 'ContentType', 'vector', 'BackgroundColor', 'white');
 fprintf('Saved %s.png and %s.pdf\n', file, file);
@@ -638,21 +643,589 @@ outside = sum(~inside & isfinite(xs) & isfinite(ys));
 end`,
   },
   {
+    name: 'xppFitCurve',
+    deps: ['xppPolyFit', 'xppPhysicalFit'],
+    code: String.raw`function f = xppFitCurve(x, y, model, degree)
+%XPPFITCURVE The app's fit of y against x: a polynomial of the given degree (model 'poly', xppPolyFit), or a physical
+%   model of the parabolic drag polar through the points at x > 0 (xppPhysicalFit): 'power' y = A*V^3 + B/V, 'drag'
+%   y = A*V^2 + B/V^2. f.ok is false with too few distinct x values; f.xs, f.ys sample the curve over the fitted x
+%   range and f.equation is its text with R^2 and n.
+x = x(:);
+y = y(:);
+ok = isfinite(x) & isfinite(y);
+if ~strcmp(model, 'poly')
+    ok = ok & x > 0;
+end
+x = x(ok);
+y = y(ok);
+f = struct('model', model, 'degree', degree, 'ok', false, 'n', numel(x), 'xMin', min([x; Inf]), ...
+    'xMax', max([x; -Inf]), 'coeffs', [], 'a', NaN, 'b', NaN, 'aSe', NaN, 'bSe', NaN, 'r2', NaN, 'rmse', NaN, ...
+    'xs', [], 'ys', [], 'equation', '');
+if strcmp(model, 'poly')
+    [f.xs, f.ys, f.equation, f.coeffs, f.r2] = xppPolyFit(x, y, degree);
+    f.ok = ~isempty(f.xs);
+    if f.ok
+        f.rmse = sqrt(mean((y - polyval(f.coeffs, x)) .^ 2));
+    end
+else
+    f = xppPhysicalFit(x, y, f);
+end
+end`,
+  },
+  {
+    name: 'xppPhysicalFit',
+    deps: [],
+    code: String.raw`function f = xppPhysicalFit(v, y, f)
+%XPPPHYSICALFIT Least squares of y = A*V^p + B*V^q (f.model 'power': p = 3, q = -1; 'drag': p = 2, q = -2), linear in
+%   A and B, solved as the app solves it: QR on the columns [u^p, u^q] with u = V / sqrt(min(V) * max(V)), so both
+%   columns are of order one. Standard errors from s^2 * inv(M' * M), s^2 = SSR / (n - 2). Needs 2 distinct speeds.
+if numel(unique(v)) < 2
+    return
+end
+p = 3;
+q = -1;
+if strcmp(f.model, 'drag')
+    p = 2;
+    q = -2;
+end
+ref = sqrt(min(v) * max(v));
+u = v / ref;
+M = [u .^ p, u .^ q];
+[Q, R] = qr(M, 0);
+c = R \ (Q' * y);
+ssr = sum((y - M * c) .^ 2);
+n = numel(v);
+f.a = c(1) / ref ^ p;
+f.b = c(2) / ref ^ q;
+sst = sum((y - mean(y)) .^ 2);
+if sst > n * (1e-14 * max(abs(y))) ^ 2
+    f.r2 = 1 - ssr / sst;                                % no R^2 (NaN) when y does not vary
+end
+f.rmse = sqrt(ssr / n);
+if n > 2
+    Rinv = R \ eye(2);
+    covariance = ssr / (n - 2) * (Rinv * Rinv');
+    f.aSe = sqrt(covariance(1, 1)) / ref ^ p;
+    f.bSe = sqrt(covariance(2, 2)) / ref ^ q;
+end
+f.ok = true;
+f.xs = linspace(f.xMin, f.xMax, 200)';
+f.ys = f.a * f.xs .^ p + f.b * f.xs .^ q;
+power = char(179);                                       % superscript 3
+denominator = 'x';
+if p == 2
+    power = char(178);                                   % superscript 2
+    denominator = ['x' char(178)];
+end
+sign = '+';
+if f.b < 0
+    sign = '-';
+end
+f.equation = sprintf('y = %.4g%sx%s %s %.4g/%s  (R%s = %.4f, n = %d)', f.a, char(183), power, sign, abs(f.b), ...
+    denominator, char(178), f.r2, n);
+end`,
+  },
+  {
+    name: 'xppCurveValue',
+    deps: [],
+    code: String.raw`function y = xppCurveValue(f, v)
+%XPPCURVEVALUE The fitted curve f (xppFitCurve) at the speeds v.
+if strcmp(f.model, 'poly')
+    y = polyval(f.coeffs, v);
+elseif strcmp(f.model, 'power')
+    y = f.a * v .^ 3 + f.b * v .^ -1;
+else
+    y = f.a * v .^ 2 + f.b * v .^ -2;
+end
+end`,
+  },
+  {
     name: 'xppDrawFit',
     deps: [],
-    code: String.raw`function fitLog = xppDrawFit(ax, xs, ys, equation, label, color, outside, fitLog)
-%XPPDRAWFIT Draws a fitted curve from xppPolyFit and adds its equation to fitLog (or why there is no fit);
-%   outside is the number of samples left out because they lie off the axes.
-if isempty(xs)
+    code: String.raw`function fitLog = xppDrawFit(ax, f, label, color, outside, fitLog, dotted)
+%XPPDRAWFIT Draws a fitted curve from xppFitCurve and adds its equation to fitLog (or why there is no fit); outside is
+%   the number of samples left out because they lie off the axes. dotted: with the range and endurance constructions,
+%   as in the app; the legend then names the model only (the equation is in fitLog and out/range_endurance.txt).
+if ~f.ok
     fitLog{end + 1} = sprintf('%s: not enough distinct x values for the fit', label);
     return
 end
-plot(ax, xs, ys, '-', 'Color', color, 'LineWidth', 1.5, 'DisplayName', [label ' fit: ' equation]);
+style = '-';
+name = [label ' fit: ' f.equation];
+if dotted
+    style = ':';
+    switch f.model
+        case 'power'
+            short = ['A' char(183) 'V' char(179) ' + B/V'];
+        case 'drag'
+            short = ['A' char(183) 'V' char(178) ' + B/V' char(178)];
+        otherwise
+            degrees = {'linear', 'quadratic', 'cubic'};
+            short = degrees{min(max(f.degree, 1), 3)};
+    end
+    name = [label ' fit: ' short];
+end
+plot(ax, f.xs, f.ys, style, 'Color', color, 'LineWidth', 1.5, 'DisplayName', name);
 note = '';
 if outside > 0
     note = sprintf(' [%d samples off the axes left out, as in the app]', outside);
 end
-fitLog{end + 1} = [label ': ' equation note];
+fitLog{end + 1} = [label ': ' f.equation note];
+end`,
+  },
+  {
+    name: 'xppRangeEndurance',
+    deps: ['xppInteriorMin', 'xppBisect', 'xppCurveValue'],
+    code: String.raw`function re = xppRangeEndurance(f)
+%XPPRANGEENDURANCE Maximum endurance V_E (the minimum of the fitted curve) and maximum range V_R (where the tangent from
+%   the origin touches it), found exactly as the app finds them (src/core/analysis/rangeEndurance.ts):
+%   - physical models in closed form: power V_E = (B/3A)^(1/4), V_R = (B/A)^(1/4); drag V_E = (B/A)^(1/4),
+%     V_R = (3B/A)^(1/4), so V_R/V_E = 3^(1/4) for both. Only when A > 0 and B > 0, R^2 > 0, and A and B are each
+%     at least two standard errors above zero: otherwise the note says why there are no speeds;
+%   - polynomials by a scan of 2001 speeds, then bisection on f' (minimum) and on V*f' - f (tangent) to full precision.
+%   Both search the fitted speed range widened by half its span on each side; a point outside it is not reported (the
+%   note says why). Points outside the fitted speeds are flagged as extrapolated.
+re = struct('vE', NaN, 'yE', NaN, 'vR', NaN, 'yR', NaN, 'extrapE', false, 'extrapR', false, 'slope', NaN, ...
+    'ratio', NaN, 'noteE', '', 'noteR', '', 'window', [NaN NaN]);
+if ~f.ok
+    re.noteE = 'No fit.';
+    re.noteR = re.noteE;
+    return
+end
+if ~(f.xMax > 0)
+    re.noteE = 'Needs test points at positive speeds.';
+    re.noteR = re.noteE;
+    return
+end
+margin = 0.5 * (f.xMax - f.xMin);
+floorSpeed = 1e-3 * f.xMax;
+if f.xMin > 0
+    floorSpeed = 0.1 * f.xMin;
+end
+lo = max(f.xMin - margin, floorSpeed);
+hi = f.xMax + margin;
+re.window = [lo hi];
+if strcmp(f.model, 'poly')
+    c = f.coeffs;                                        % highest power first
+    if numel(c) < 3 || all(c(1:end - 2) == 0)
+        re.noteE = 'A straight line has neither a minimum nor a tangent from the origin: fit a curve.';
+        re.noteR = re.noteE;
+        return
+    end
+    n = 2000;
+    vs = lo + (hi - lo) * (0:n)' / n;
+    fv = polyval(c, vs);
+    i = xppInteriorMin(fv);
+    if i > 0
+        re.vE = xppBisect(polyder(c), vs(i - 1), vs(i + 1), vs(i));
+        re.yE = polyval(c, re.vE);
+    else
+        re.noteE = sprintf('No minimum between %.4g and %.4g: the fitted curve keeps falling or rising there.', lo, hi);
+    end
+    i = xppInteriorMin(fv ./ vs);
+    re.noteR = sprintf('No tangent from the origin touches the fitted curve between %.4g and %.4g.', lo, hi);
+    if i > 0
+        tangent = c .* ((numel(c) - 1:-1:0) - 1);       % V*f'(V) - f(V): coefficient (k - 1)*c_k of V^k
+        v = xppBisect(tangent, vs(i - 1), vs(i + 1), vs(i));
+        y = polyval(c, v);
+        if y > 0
+            re.vR = v;
+            re.yR = y;
+            re.noteR = '';
+        else
+            re.noteR = 'The tangent from the origin would touch the curve where it is not positive.';
+        end
+    end
+else
+    a = f.a;
+    b = f.b;
+    shape = 'A*V^3 + B/V';
+    least = 'power';
+    if strcmp(f.model, 'drag')
+        shape = 'A*V^2 + B/V^2';
+        least = 'drag';
+    end
+    if ~(a > 0) || ~(b > 0)
+        re.noteE = sprintf(['No minimum: %s has one only when A and B are both positive (here A = %.4g, B = %.4g). ' ...
+            'Test points on both sides of the minimum-%s speed fix that.'], shape, a, b, least);
+    elseif isnan(f.r2)
+        re.noteE = 'No minimum: y does not vary across these points, so the model has no curve to read the speeds from.';
+    elseif ~(f.r2 > 0)
+        re.noteE = sprintf(['No minimum: the model does not fit these points (R^2 = %.3f), so neither speed can be ' ...
+            'read from it. Fit it through the means of steady level test points.'], f.r2);
+    elseif a < 2 * f.aSe || b < 2 * f.bSe                % NaN standard errors (two points) never count here
+        weak = {'A', 'B', 'A and B'};
+        verb = {'is', 'is', 'are'};
+        pick = (a < 2 * f.aSe) + 2 * (b < 2 * f.bSe);
+        re.noteE = sprintf(['No minimum: %s %s within two standard errors of zero (A = %.4g +/- %.4g, B = %.4g +/- ' ...
+            '%.4g), so the minimum could be almost anywhere. Test points on both sides of the minimum-%s speed fix ' ...
+            'that.'], weak{pick}, verb{pick}, a, f.aSe, b, f.bSe, least);
+    end
+    if ~isempty(re.noteE)
+        re.noteR = re.noteE;
+        return
+    end
+    if strcmp(f.model, 'power')
+        vE = (b / (3 * a)) ^ 0.25;
+        vR = (b / a) ^ 0.25;
+    else
+        vE = (b / a) ^ 0.25;
+        vR = (3 * b / a) ^ 0.25;
+    end
+    far = 'The %s would be at V = %.4g, far outside the test points (%.4g to %.4g): not shown. Fly test points nearer that speed.';
+    if vE >= lo && vE <= hi
+        re.vE = vE;
+        re.yE = xppCurveValue(f, vE);
+    else
+        re.noteE = sprintf(far, 'minimum', vE, f.xMin, f.xMax);
+    end
+    if vR >= lo && vR <= hi
+        re.vR = vR;
+        re.yR = xppCurveValue(f, vR);
+    else
+        re.noteR = sprintf(far, 'tangent point', vR, f.xMin, f.xMax);
+    end
+end
+re.extrapE = re.vE < f.xMin || re.vE > f.xMax;
+re.extrapR = re.vR < f.xMin || re.vR > f.xMax;
+re.slope = re.yR / re.vR;
+re.ratio = re.vR / re.vE;
+end`,
+  },
+  {
+    name: 'xppInteriorMin',
+    deps: [],
+    code: String.raw`function i = xppInteriorMin(values)
+%XPPINTERIORMIN Index of the lowest interior local minimum of values (lower than the sample before it and not higher
+%   than the one after it; never an end sample), or 0 when there is none.
+i = 0;
+k = find(values(2:end - 1) < values(1:end - 2) & values(2:end - 1) <= values(3:end)) + 1;
+if ~isempty(k)
+    [~, j] = min(values(k));
+    i = k(j);
+end
+end`,
+  },
+  {
+    name: 'xppBisect',
+    deps: [],
+    code: String.raw`function v = xppBisect(c, lo, hi, guess)
+%XPPBISECT The root of the polynomial c (highest power first) in [lo, hi] where it goes from <= 0 to >= 0, by bisection
+%   to full double precision, as the app does; guess when the bracket does not hold.
+a = lo;
+b = hi;
+da = polyval(c, a);
+db = polyval(c, b);
+v = guess;
+if da == 0
+    v = a;
+    return
+end
+if db == 0
+    v = b;
+    return
+end
+if ~(da < 0 && db > 0)
+    return
+end
+for iteration = 1:200
+    m = a + (b - a) / 2;
+    if ~(m > a && m < b)
+        break
+    end
+    dm = polyval(c, m);
+    if dm == 0
+        v = m;
+        return
+    end
+    if dm < 0
+        a = m;
+    else
+        b = m;
+    end
+end
+v = a + (b - a) / 2;
+end`,
+  },
+  {
+    name: 'xppNiceRange',
+    deps: [],
+    code: String.raw`function r = xppNiceRange(values)
+%XPPNICERANGE [lo hi] of the finite values widened to whole steps of 1, 2 or 5 x 10^n (about 6 steps across), as the
+%   app rounds the axis ranges it sets itself.
+values = values(isfinite(values));
+r = [min(values) max(values)];
+if isempty(values) || ~(r(2) > r(1))
+    return
+end
+raw = (r(2) - r(1)) / 6;
+scale = 10 ^ floor(log10(raw));
+f = raw / scale;
+if f < 1.5
+    step = scale;
+elseif f < 3
+    step = 2 * scale;
+elseif f < 7
+    step = 5 * scale;
+else
+    step = 10 * scale;
+end
+r = [floor(r(1) / step) * step, ceil(r(2) / step) * step];
+end`,
+  },
+  {
+    name: 'xppAxesFromZero',
+    deps: ['xppNiceRange'],
+    code: String.raw`function xppAxesFromZero(ax)
+%XPPAXESFROMZERO Both axes widened to take in zero, with round ends (the app's "Axes from zero").
+xlim(ax, xppNiceRange([xlim(ax), 0]));
+ylim(ax, xppNiceRange([ylim(ax), 0]));
+end`,
+  },
+  {
+    name: 'xppDrawRangeEndurance',
+    deps: ['xppNiceRange', 'xppCurveValue', 'xppObstacles', 'xppPlaceLabel', 'xppReLabel'],
+    code: String.raw`function xppDrawRangeEndurance(ax, reList, fromZero, colors, xUnit)
+%XPPDRAWRANGEENDURANCE Draws each fit's range and endurance constructions as the app does: the minimum (max endurance)
+%   with a dashed guide down to the x axis and one across the plot, the tangent from the origin (max range) running 40%
+%   past the point it touches with a dashed guide down to the x axis, a marker at both points, the fitted curve carried
+%   on (dashed) to a point outside the fitted speeds, and a label beside each marker where it covers the fewest data.
+%   The axes take in the points (and zero with fromZero) with round ends. reList: cells of struct(fit, re, label, ...)
+%   (xppFitCurve, xppRangeEndurance); colors: rows for max endurance and max range. When both rows are the same (ink:
+%   the data use the construction colours), the V_R guide is dash-dot, so line styles tell the two apart.
+names = {'Max endurance (minimum)', 'Max range (tangent from origin)'};
+rangeGuide = '--';
+if isequal(colors(1, :), colors(2, :))
+    rangeGuide = '-.';
+end
+speeds = [];
+values = [];
+for k = 1:numel(reList)
+    speeds = [speeds, reList{k}.re.vE, reList{k}.re.vR]; %#ok<AGROW>
+    values = [values, reList{k}.re.yE, reList{k}.re.yR]; %#ok<AGROW>
+end
+found = isfinite(speeds);
+if any(found) || fromZero
+    zero = zeros(1, double(fromZero));
+    xlim(ax, xppNiceRange([xlim(ax), speeds(found), zero]));
+    ylim(ax, xppNiceRange([ylim(ax), values(found), zero]));
+end
+xl = xlim(ax);
+yl = ylim(ax);
+named = [false false];                                   % one legend entry per construction
+guides = gobjects(0);
+for k = 1:numel(reList)
+    f = reList{k}.fit;
+    re = reList{k}.re;
+    known = [re.vE, re.vR];
+    known = known(isfinite(known));
+    if ~isempty(known) && min(known) < f.xMin
+        v = linspace(min(known), f.xMin, 40);
+        plot(ax, v, xppCurveValue(f, v), '--', 'Color', reList{k}.color, 'LineWidth', 1, 'HandleVisibility', 'off');
+    end
+    if ~isempty(known) && max(known) > f.xMax
+        v = linspace(f.xMax, max(known), 40);
+        plot(ax, v, xppCurveValue(f, v), '--', 'Color', reList{k}.color, 'LineWidth', 1, 'HandleVisibility', 'off');
+    end
+    if isfinite(re.vE)
+        guides(end + 1) = plot(ax, [re.vE re.vE], [yl(1) re.yE], '--', 'Color', colors(1, :), 'LineWidth', 1); %#ok<AGROW>
+        guides(end + 1) = plot(ax, xl, [re.yE re.yE], '--', 'Color', colors(1, :), 'LineWidth', 1); %#ok<AGROW>
+        set(guides(end - 1:end), 'HandleVisibility', 'off');
+        if ~named(1)
+            set(guides(end - 1), 'HandleVisibility', 'on', 'DisplayName', names{1});
+            named(1) = true;
+        end
+    end
+    if isfinite(re.vR)
+        stop = min(xl(2), 1.4 * re.vR);
+        guides(end + 1) = plot(ax, [0 stop], [0 re.slope * stop], '-', 'Color', colors(2, :), 'LineWidth', 1); %#ok<AGROW>
+        guides(end + 1) = plot(ax, [re.vR re.vR], [yl(1) re.yR], rangeGuide, 'Color', colors(2, :), 'LineWidth', 1); %#ok<AGROW>
+        set(guides(end - 1:end), 'HandleVisibility', 'off');
+        if ~named(2)
+            set(guides(end - 1), 'HandleVisibility', 'on', 'DisplayName', names{2});
+            named(2) = true;
+        end
+    end
+end
+uistack(guides, 'bottom');                               % under the data, as in the app
+% Markers, then the labels, each placed away from everything drawn and from the labels before it.
+for k = 1:numel(reList)
+    re = reList{k}.re;
+    if isfinite(re.vE)
+        plot(ax, re.vE, re.yE, 'o', 'MarkerSize', 6, 'MarkerFaceColor', colors(1, :), 'MarkerEdgeColor', 'w', ...
+            'HandleVisibility', 'off');
+    end
+    if isfinite(re.vR)
+        plot(ax, re.vR, re.yR, 'o', 'MarkerSize', 6, 'MarkerFaceColor', colors(2, :), 'MarkerEdgeColor', 'w', ...
+            'HandleVisibility', 'off');
+    end
+end
+obstacles = xppObstacles(ax);
+placed = zeros(0, 4);
+% With several fits each label starts with its fit's name ("Heavy: max range V_R = 97 kt"), TeX characters escaped.
+prefix = @(k) '';
+leads = {'Max endurance V_E', 'Max range V_R'};
+if numel(reList) > 1
+    prefix = @(k) [regexprep(reList{k}.label, '([_^{}\\])', '\\$1') ': '];
+    leads = {'max endurance V_E', 'max range V_R'};
+end
+for k = 1:numel(reList)
+    re = reList{k}.re;
+    if isfinite(re.vE)
+        placed(end + 1, :) = xppPlaceLabel(ax, re.vE, re.yE, ...
+            xppReLabel([prefix(k) leads{1}], re.vE, xUnit, re.extrapE), obstacles, placed); %#ok<AGROW>
+    end
+    if isfinite(re.vR)
+        placed(end + 1, :) = xppPlaceLabel(ax, re.vR, re.yR, ...
+            xppReLabel([prefix(k) leads{2}], re.vR, xUnit, re.extrapR), obstacles, placed); %#ok<AGROW>
+    end
+end
+end`,
+  },
+  {
+    name: 'xppReLabel',
+    deps: [],
+    code: String.raw`function s = xppReLabel(lead, v, unit, extrapolated)
+%XPPRELABEL "Max endurance V_E = 72 kt" (TeX: V with subscript E), whole numbers from 20 up, else 3 significant
+%   figures, as the app labels its constructions; "(extrapolated)" on a second line outside the fitted speeds.
+if abs(v) >= 20
+    s = sprintf('%s = %d', lead, round(v));
+else
+    s = sprintf('%s = %s', lead, num2str(v, 3));
+end
+if ~isempty(unit)
+    s = [s ' ' regexprep(unit, '([_^{}\\])', '\\$1')];
+end
+if extrapolated
+    s = {s, '(extrapolated)'};
+end
+end`,
+  },
+  {
+    name: 'xppObstacles',
+    deps: [],
+    code: String.raw`function pts = xppObstacles(ax)
+%XPPOBSTACLES Points along everything drawn in the axes, hidden legend entries included (at most 3000 per object;
+%   two-point lines filled in), which the construction labels keep away from.
+pts = zeros(0, 2);
+for h = reshape(allchild(ax), 1, [])
+    if ~isprop(h, 'XData') || ~isprop(h, 'YData')
+        continue
+    end
+    x = double(h.XData(:));
+    y = double(h.YData(:));
+    if isempty(x) || numel(x) ~= numel(y)
+        continue
+    end
+    if numel(x) == 2
+        x = linspace(x(1), x(2), 60)';
+        y = linspace(y(1), y(2), 60)';
+    end
+    keep = isfinite(x) & isfinite(y);
+    x = x(keep);
+    y = y(keep);
+    every = max(1, ceil(numel(x) / 3000));
+    pts = [pts; x(1:every:end), y(1:every:end)]; %#ok<AGROW>
+end
+end`,
+  },
+  {
+    name: 'xppPlaceLabel',
+    deps: [],
+    code: String.raw`function box = xppPlaceLabel(ax, x, y, str, obstacles, placed)
+%XPPPLACELABEL A label beside the point (x, y) at the first of the app's spots (left or right of it, one to three lines
+%   up or down; upper left first) whose box covers the fewest obstacle points, stays inside the axes and overlaps no
+%   earlier label (placed: rows of [left bottom width height]). Returns its box.
+spots = [-1 1; -1 2; 1 -1; 1 1; -1 -1; 1 -2; -1 3; 1 2; -1 -2; 1 3; 1 -3; -1 -3];
+xl = xlim(ax);
+yl = ylim(ax);
+gap = 0.012 * diff(xl);
+t = text(ax, x, y, str, 'Interpreter', 'tex', 'FontSize', 9, 'BackgroundColor', 'w', 'Margin', 1, ...
+    'VerticalAlignment', 'middle', 'Clipping', 'on');
+step = 1.15 * t.Extent(4);
+best = Inf;
+choice = 1;
+box = t.Extent;
+for k = 1:size(spots, 1)
+    align = 'right';
+    if spots(k, 1) > 0
+        align = 'left';
+    end
+    set(t, 'Position', [x + spots(k, 1) * gap, y + spots(k, 2) * step, 0], 'HorizontalAlignment', align);
+    b = t.Extent;
+    score = 0.01 * k;
+    if b(1) < xl(1) || b(1) + b(3) > xl(2) || b(2) < yl(1) || b(2) + b(4) > yl(2)
+        score = score + 500;
+    end
+    for j = 1:size(placed, 1)
+        p = placed(j, :);
+        if b(1) < p(1) + p(3) && p(1) < b(1) + b(3) && b(2) < p(2) + p(4) && p(2) < b(2) + b(4)
+            score = score + 1000;
+        end
+    end
+    score = score + sum(obstacles(:, 1) >= b(1) & obstacles(:, 1) <= b(1) + b(3) & ...
+        obstacles(:, 2) >= b(2) & obstacles(:, 2) <= b(2) + b(4));
+    if score < best
+        best = score;
+        choice = k;
+        box = b;
+    end
+end
+align = 'right';
+if spots(choice, 1) > 0
+    align = 'left';
+end
+set(t, 'Position', [x + spots(choice, 1) * gap, y + spots(choice, 2) * step, 0], 'HorizontalAlignment', align);
+end`,
+  },
+  {
+    name: 'xppReReport',
+    deps: [],
+    code: String.raw`function lines = xppReReport(reList, xUnit)
+%XPPREREPORT The range and endurance results as text lines, every number at full precision (printed, and written to
+%   out/range_endurance.txt). reList: cells of struct(fit, re, label, color, yUnit, target).
+lines = {'Range and endurance from the X-Y fit (X-Plane Plotter MATLAB export)', ...
+    'V_E: maximum endurance, the minimum of the fitted curve. V_R: maximum range, where the tangent from the origin touches it.', ...
+    'For the weight and altitude flown: not reduced to standard conditions.'};
+for k = 1:numel(reList)
+    f = reList{k}.fit;
+    re = reList{k}.re;
+    yUnit = reList{k}.yUnit;
+    switch f.model
+        case 'power'
+            model = 'power model y = A*V^3 + B/V';
+        case 'drag'
+            model = 'drag model y = A*V^2 + B/V^2';
+        otherwise
+            model = sprintf('polynomial of degree %d', f.degree);
+    end
+    lines{end + 1} = ''; %#ok<AGROW>
+    lines{end + 1} = sprintf('%s: %s, through the %s', reList{k}.label, model, reList{k}.target); %#ok<AGROW>
+    mark = {'', '   (extrapolated: outside the fitted speeds)'};
+    lines{end + 1} = sprintf('V_E = %.15g %s%s', re.vE, xUnit, mark{1 + re.extrapE}); %#ok<AGROW>
+    lines{end + 1} = sprintf('y_E = %.15g %s', re.yE, yUnit); %#ok<AGROW>
+    lines{end + 1} = sprintf('V_R = %.15g %s%s', re.vR, xUnit, mark{1 + re.extrapR}); %#ok<AGROW>
+    lines{end + 1} = sprintf('y_R = %.15g %s', re.yR, yUnit); %#ok<AGROW>
+    lines{end + 1} = sprintf('y_R/V_R = %.15g   (slope of the tangent from the origin)', re.slope); %#ok<AGROW>
+    lines{end + 1} = sprintf('V_R/V_E = %.15g', re.ratio); %#ok<AGROW>
+    if strcmp(f.model, 'poly')
+        for j = 1:numel(f.coeffs)
+            lines{end + 1} = sprintf('c%d = %.15g', numel(f.coeffs) - j, f.coeffs(j)); %#ok<AGROW>
+        end
+    else
+        lines{end} = sprintf('%s   (3^(1/4) = %.15g for this model)', lines{end}, 3 ^ 0.25);
+        lines{end + 1} = sprintf('A = %.15g +/- %.15g', f.a, f.aSe); %#ok<AGROW>
+        lines{end + 1} = sprintf('B = %.15g +/- %.15g', f.b, f.bSe); %#ok<AGROW>
+    end
+    lines{end + 1} = sprintf('R^2 = %.15g', f.r2); %#ok<AGROW>
+    lines{end + 1} = sprintf('RMSE = %.15g %s', f.rmse, yUnit); %#ok<AGROW>
+    lines{end + 1} = sprintf('n = %d', f.n); %#ok<AGROW>
+    notes = unique({re.noteE, re.noteR}, 'stable');
+    notes = notes(~cellfun('isempty', notes));
+    for j = 1:numel(notes)
+        lines{end + 1} = ['Note: ' notes{j}]; %#ok<AGROW>
+    end
+end
 end`,
   },
   {

@@ -1,8 +1,10 @@
-// Small legend keys for the X–Y view, drawn like the chart draws them: a marker in its shape, a line key, the fit line
-// and the test-point mean with its ±1σ bars. Colours are CSS values (slot tokens follow the theme).
+// Small legend keys for the X–Y view, drawn like the chart draws them: a marker in its shape, a line key (solid, dashed
+// or dotted, as the line it stands for), the fit line and the test-point mean with its ±1σ bars. Colours are CSS values
+// (slot tokens follow the theme).
 
 import type { CSSProperties } from 'react'
 import { markerPolygon } from '../../charts/options/xy'
+import type { LinePattern } from './xyControls'
 import type { MarkerShape } from './xyModel'
 
 /** The CSS colour of a categorical slot (0-based), or neutral ink for null. */
@@ -33,15 +35,23 @@ export function MarkerGlyph({ shape, slot, size = 10 }: { shape: MarkerShape; sl
   )
 }
 
-export function LineGlyph({ slot, dashed = false }: { slot: number | null; dashed?: boolean }) {
+const DASHES: Record<LinePattern, { dasharray?: string; cap: 'round' | 'butt' }> = {
+  solid: { cap: 'round' },
+  dashed: { dasharray: '3 2', cap: 'butt' },
+  // Round caps on near-zero dashes draw dots.
+  dotted: { dasharray: '0.01 3.6', cap: 'round' },
+}
+
+export function LineGlyph({ slot, pattern = 'solid' }: { slot: number | null; pattern?: LinePattern }) {
+  const { dasharray, cap } = DASHES[pattern]
   return (
     <svg className="xy-glyph" width={16} height={10} viewBox="0 0 16 10" aria-hidden="true" focusable="false">
       <line
-        x1={1}
+        x1={pattern === 'dotted' ? 2 : 1}
         y1={5}
         x2={15}
         y2={5}
-        style={{ stroke: slotColor(slot), strokeWidth: 2, strokeLinecap: 'round', strokeDasharray: dashed ? '3 3' : undefined }}
+        style={{ stroke: slotColor(slot), strokeWidth: 2, strokeLinecap: cap, strokeDasharray: dasharray }}
       />
     </svg>
   )

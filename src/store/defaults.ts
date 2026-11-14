@@ -18,6 +18,8 @@ import type {
 export const MAX_SERIES = 8
 /** Most test-point groups a file can have: one colour slot each, so a 9th group would repeat a colour. */
 export const MAX_GROUPS = 8
+/** Every X–Y fit setting (XYConfig.fit), for sanitising stored values. */
+export const XY_FITS = ['none', 'linear', 'poly2', 'poly3', 'power-model', 'drag-model'] as const satisfies readonly XYConfig['fit'][]
 
 let idCounter = 0
 /** Short unique id with a prefix: "p3k9x2a". */
@@ -239,8 +241,11 @@ export function sanitizeWorkspace(input: unknown, ds: Dataset): Workspace {
     ...xyGroups(xyIn.groups, groupIds),
     style: oneOf(xyIn.style, ['points', 'lines', 'both'] as const, 'points'),
     colorBy: oneOf(xyIn.colorBy, ['series', 'group', 'time'] as const, 'series'),
-    fit: oneOf(xyIn.fit, ['none', 'linear', 'poly2', 'poly3'] as const, 'none'),
+    fit: oneOf(xyIn.fit, XY_FITS, 'none'),
     fitTarget: oneOf(xyIn.fitTarget, ['samples', 'means'] as const, 'samples'),
+    // Optional flags: present (true) only when on, so older workspaces and sessions read the same.
+    ...(xyIn.rangeEndurance === true ? { rangeEndurance: true } : {}),
+    ...(xyIn.axesFromZero === true ? { axesFromZero: true } : {}),
     showSamples: xyIn.showSamples !== false,
     showMeans: xyIn.showMeans !== false,
     title: str(xyIn.title, '').slice(0, 160),
