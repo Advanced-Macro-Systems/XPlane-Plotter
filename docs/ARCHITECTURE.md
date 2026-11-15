@@ -205,20 +205,30 @@ steady level points behind a range-and-endurance fit). Each returns `Check`s (`t
 not-checkable / not-settled / info, `severity` (critical, analysis, advisory, info, open), the measured value, the
 criterion, a one-line hint, the "Why", short citations (`cite.ts` formats the registry's keys: "NATO 13-10" ->
 "NATO AG-300 v14 p.13-10"; a "not checkable" line names the Data Output row from `groupRows`, starred when its index is
-not confirmed) and a `judgement` flag for thresholds no source gives. Questions the sources do not settle are
+not confirmed), a `judgement` flag (at least one limit is engineering judgement or an app default: no published source
+gives it) and `sourced` (the numbers a source does give, with the page; shown as "From the sources" and exported in a
+`sourced` column). `result()` caps an advisory check at warn: advisory checks never fail and never change a point's place
+or the verdict. Questions the sources do not settle are
 `OpenItem`s (static N1–N4, performance U1–U7), never pass or fail. The set checklists give each point a verdict (Use,
-Correct, Plot only, Retest, Cannot confirm, Left out) and the set one in NATO Table 29-I's words; the used points U are
+Correct, Plot separately (a valid point of another configuration, left out of this fit), Retest, Cannot confirm, Left
+out (by the user)) and the set one in NATO Table 29-I's words; a point near the stall stays in the fit with a note (no
+source removes such points). The used points U are
 what the X–Y fit draws when "Fit the used points only" is ticked. A shared id (`time-base`, `sample-rate`,
 `throttle-fixed`, `trim-fixed`, `configuration-constant`, `weather`, `envelope`, `autopilot-record`, ...) computes the
 same thing in every checklist through `helpers.ts` (power steadiness smoothed inside the window only, who flew pitch:
 the surface follows a moving servo with R² ≥ 0.9 while the stick is still, settling after the last power change, ...);
 only the thresholds are each test's (the dynamic checklist's are overridable by name, `CHECK_THRESHOLDS`; the static
-ones are documented in `TRIM_CHECK_THRESHOLDS`). `recut.ts` finds a point's longest stretch with the levers, the thrust
-(and on request the trim) still, for "Re-cut … flagged points": Find steady points accepts the power within ± 3 %, so
+ones are documented in `TRIM_CHECK_THRESHOLDS`, each tagged with its source or EJ). `recut.ts` finds a point's longest
+stretch still in its own checklist's throttle-fixed bands (performance: the levers and the thrust; static, which judges
+the setting: the levers and the throttle reaching the engines, N1 or the force only without them; on request the trim),
+for "Re-cut … flagged points": Find steady points accepts the power within ± 3 %, so
 its windows can start while the throttle is still being trimmed; the set verdicts count the same points
 (`recutFailing`, `recutCounts`) and say "Fix the analysis — re-cut …" when that alone could leave enough usable points.
-The dynamic checklist judges the autopilot on its own spans (T and R, whole and every 2 s, then TIR) without the ±30 s
-widening the set checklists use, so an autopilot that took over after the input is found on the input's own axis.
+The dynamic checklist judges the autopilot on its own spans without the ±30 s widening the set checklists use: R and the
+input to R's end (whole and every 2 s) and, without an input, the look-back decide a fail; the trim window T before the
+input only warns. An autopilot that took over after the input is found on the input's own axis. Its input search looks
+past the look-back, back to the last power, configuration or trim change; an input found there only warns. A rejected
+fit or a window that can be widened is "Fix the analysis", not a retest.
 `registry.ts` lists every check;
 `export.ts` writes the rows (CSV / TSV, formula-like cells defused). Tests use synthetic logs only (`fixtures.ts`).
 Settings live on the workspace (`trimCheck`, `perfCheck`, `checklist.kind`) and in `ModesConfig.check`, not in

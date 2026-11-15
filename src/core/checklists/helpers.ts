@@ -520,7 +520,8 @@ export function settling(ds: Dataset, a: number, b: number, lookbackS: number): 
   const lookback = time[a] - time[lo]
   const levers = leverChannels(ds)
   const thrusts = engineChannels(ds, THRUST)
-  const powers = engineChannels(ds, POWER_HP)
+  // Engine power as powerSteadiness reads it: X-Plane 12's engn hp, else the legacy power,_k,hp.
+  const powers = engineChannels(ds, POWER_HP).length ? engineChannels(ds, POWER_HP) : engineChannels(ds, POWER_LEGACY)
   const n1s = engineChannels(ds, N1)
   const forceChannels = thrusts.length ? thrusts : powers.length ? powers : n1s
   let thrustTrend = NaN
@@ -684,7 +685,10 @@ export function pct(ratio: number, decimals = 1): string {
   return Number.isFinite(ratio) ? `${fix(100 * ratio, decimals)} %` : '—'
 }
 
-/** The result of one check, from its definition. */
+/**
+ * The result of one check, from its definition. An advisory check never fails (types.ts: "a note; never fails, never
+ * blocks the verdict"), so its worst status is a warning, whatever the check computed.
+ */
 export function result(
   def: CheckDef,
   kind: ChecklistKind,
@@ -694,12 +698,13 @@ export function result(
   hint = '',
   extra: Partial<Pick<Check, 'pointId' | 'severity' | 'title'>> = {},
 ): Check {
+  const severity = extra.severity ?? def.severity
   return {
     id: def.id,
     kind,
     title: extra.title ?? def.title,
-    status,
-    severity: extra.severity ?? def.severity,
+    status: severity === 'advisory' && status === 'fail' ? 'warn' : status,
+    severity,
     scope: def.scope,
     measured,
     criterion,
@@ -707,6 +712,7 @@ export function result(
     why: def.why,
     citations: formatCitations(def.cite),
     judgement: def.judgement,
+    ...(def.sourced ? { sourced: def.sourced } : {}),
     ...(def.follows ? { follows: def.follows } : {}),
     interval: def.interval,
     ...(extra.pointId ? { pointId: extra.pointId } : {}),

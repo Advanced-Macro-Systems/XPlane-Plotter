@@ -46,7 +46,7 @@ const POINT_STATUS: Readonly<Record<PointStatus, CheckStatus>> = {
   'left-out': 'not-settled',
 }
 
-/** A test point's place in the set ("Use", "Correct", "Plot only", "Retest", "Cannot confirm", "Left out"). */
+/** A test point's place in the set ("Use", "Correct", "Plot separately", "Retest", "Cannot confirm", "Left out"). */
 export function PointBadge({ status, label }: { status: PointStatus; label: string }) {
   const shown = POINT_STATUS[status]
   const Icon = ICON[shown]
@@ -89,7 +89,10 @@ export function CheckRow({ check, testId, extra }: { check: Check; testId?: stri
         <StatusBadge status={check.status} />
         <span className="ck-row-title">{check.title}</span>
         {check.judgement && (
-          <span className="ck-tag" title="The thresholds are engineering judgement: no source gives the number">
+          <span
+            className="ck-tag"
+            title="Engineering judgement: no published source gives some or all of these limits (they are this app's choice). Numbers a source does give are listed under “From the sources”."
+          >
             judgement
           </span>
         )}
@@ -109,6 +112,12 @@ export function CheckRow({ check, testId, extra }: { check: Check; testId?: stri
         )}
         <span className="ck-criterion">{check.criterion}</span>
       </p>
+      {check.sourced && check.status !== 'not-checkable' && (
+        <p className="ck-line">
+          <span className="ck-line-label">From the sources</span> <span className="ck-sourced">{check.sourced}</span>
+          {check.judgement && <span className="ck-sourced-rest"> (every other number: engineering judgement)</span>}
+        </p>
+      )}
       {check.hint && <p className="ck-hint">{check.hint}</p>}
       <div className="ck-foot">
         {check.citations.length > 0 && (

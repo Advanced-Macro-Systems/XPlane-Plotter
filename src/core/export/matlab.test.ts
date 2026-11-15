@@ -469,6 +469,7 @@ describe('matlabScript: test-validity checks', () => {
     measured: 'drift +0.4 kt/min, 2σ 0.2 kt',
     criterion: 'pass |drift| ≤ 1 kt/min',
     judgement: 'engineering judgement',
+    sourced: '',
     follows: '',
     citations: 'NATO AG-300 v14 p.13-10',
     hint: '',
@@ -480,7 +481,7 @@ describe('matlabScript: test-validity checks', () => {
     const b = body(text)
     expect(b).toContain('%% ')
     expect(b).toMatch(/Test validity checks -> out\/test_checks\.csv/)
-    expect(b).toContain("checkHeader = {'checklist', 'set', 'point', 'check', 'title', 'status', 'severity', 'measured', 'criterion', 'judgement', 'follows', 'citations', 'hint'};")
+    expect(b).toContain("checkHeader = {'checklist', 'set', 'point', 'check', 'title', 'status', 'severity', 'measured', 'criterion', 'judgement', 'sourced', 'follows', 'citations', 'hint'};")
     expect(b).toContain('not recomputed')
     expect(b).toContain("writetable(checkTable, fullfile(outDir, 'test_checks.csv'));")
     // A formula-like cell is defused; quotes doubled; non-ASCII as char codes.

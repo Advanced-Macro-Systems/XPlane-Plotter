@@ -92,8 +92,10 @@ export function ModesChecklist({
             <DynamicSettings check={check} />
             <CheckList checks={report.checks} testId="modes-checklist-list" rowTestId="modes-checklist-row" />
             <p className="md-cl-foot">
-              <span className="ck-tag">judgement</span> marks thresholds no source gives as numbers (engineering judgement). Rows
-              not logged read “Not checkable — log row N”: tick them in X-Plane’s Data Output for the next run.
+              <span className="ck-tag">judgement</span> marks a check with a limit no source gives (engineering judgement:
+              this app’s choice); “From the sources” lists the numbers a source does give, and App = this app’s own
+              defaults, not a published source. Rows not logged read “Not checkable — log row N”: tick them in
+              X-Plane’s Data Output for the next run.
             </p>
           </>
         )}

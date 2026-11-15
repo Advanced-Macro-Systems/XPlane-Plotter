@@ -209,8 +209,12 @@ function UseHelp() {
         The app checks whether each test was flown the way the course’s sources ask, check by check, with the value measured,
         the criterion and the source (document and page), each marked <strong>Pass</strong>, <strong>Warn</strong>,{' '}
         <strong>Fail</strong>, <strong>Not checkable</strong> (the log lacks a row: it names the Data Output row to tick) or{' '}
-        <strong>Info</strong>. A <code>judgement</code> tag marks a threshold no source gives as a number (engineering
-        judgement); where the sources differ the row says which one it follows. Questions the sources do not settle (are
+        <strong>Info</strong>. The sources say <em>what</em> to check (trimmed, power fixed, hands off) but rarely give a
+        number, so most limits are the app’s choice: a <code>judgement</code> tag marks a check with a limit no source gives
+        (engineering judgement), <strong>From the sources</strong> lists the numbers a source does give, with the page, and
+        a citation starting “App” is this app’s own default, not a published source. Where the sources differ the row says
+        which one it follows. An <em>advisory</em> check is a note: it never fails and never changes the verdict. Questions
+        the sources do not settle (are
         autopilot-held trim points accepted? lateral-directional static stability? is one CG enough?) are listed under{' '}
         <strong>Not settled by the sources — ask on EdDiscussion</strong>, never as pass or fail.
       </p>

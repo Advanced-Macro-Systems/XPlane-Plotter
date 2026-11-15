@@ -44,9 +44,10 @@ and propulsion-only control.
   checklist*: a badge per point, the set checks, the verdict); for a dynamic-mode window, the trim before the input,
   the input, autopilot, yaw damper and throttle, controls fixed, record length and fit (Dynamic modes → *Test
   validity*). Each check shows pass / warn / fail with the value measured, the criterion and the citation (document and
-  page); thresholds no source gives are tagged *engineering judgement*, and questions the sources do not settle are
-  listed as "ask on EdDiscussion", never as pass or fail. Points whose throttle or trim moved inside them can be
-  re-cut to their still part in one click.
+  page). The sources say what to check but rarely give a number: limits no source gives are tagged *engineering
+  judgement* (the app's choice), the numbers a source does give are listed under *From the sources*, and questions the
+  sources do not settle are listed as "ask on EdDiscussion", never as pass or fail. Points whose throttle or trim moved
+  inside them can be re-cut to their still part in one click.
 - **Formulas.** Derived channels such as total thrust, fuel flow, CL from weight, power required, specific excess power,
   specific range and endurance, or anything you type (`drag_lb * Vtrue_ktas * kt2ms * lb2n / 1000`).
 - **Exports.** PNG and SVG figures (white "paper" style), CSV of samples or test-point statistics, session JSON, and a

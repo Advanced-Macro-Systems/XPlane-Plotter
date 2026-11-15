@@ -39,8 +39,16 @@ export interface CheckDef {
   why: string
   /** Spec-style citation keys ("NATO 13-10", "Cook p.47", "FD12b p.28", "B p.7", "EJ"); cite.ts formats them */
   cite: readonly string[]
-  /** Its numbers are engineering judgement (no source gives them) */
+  /**
+   * At least one of its numbers is engineering judgement or this app's own default: no published source gives it. The
+   * numbers a source does give are listed in `sourced`.
+   */
   judgement: boolean
+  /**
+   * The numbers a published source gives, each with its source and, when the source states it for another test, that
+   * test: "fail < 10 samples/s: NATO 15-5". Absent when no number comes from a source.
+   */
+  sourced?: string
   /** Which source the criterion follows where the sources differ */
   follows?: string
   /** What the "not checkable" line says, with {N} for Data Output row N (expanded with its name, cite.ts) */
@@ -65,6 +73,8 @@ export interface Check {
   /** Short citations for display: "NATO AG-300 v14 p.13-10", "FD12b p.28", "Cook p.47", "Brief p.7" */
   citations: string[]
   judgement: boolean
+  /** The numbers a published source gives (CheckDef.sourced) */
+  sourced?: string
   follows?: string
   interval: string
   /** The test point a per-point check belongs to */
@@ -94,7 +104,8 @@ export interface Verdict {
  * A point's place in a set checklist:
  * - used: in the fit
  * - correct: used, but its energy correction matters (performance: use the corrected drag and fuel flow)
- * - plot-only: plotted but left out of the fit (near the stall)
+ * - plot-only: a valid point of another configuration, plotted but left out of this set's fit ("Plot separately").
+ *   A point near the stall is no longer one: no source removes such points, so it stays in the fit with a note.
  * - excluded: a critical check failed (retest it, or re-cut it)
  * - cannot-confirm: a critical check could not be made (a row is missing)
  * - left-out: the user left it out of the fit
@@ -106,7 +117,7 @@ export interface PointReport {
   name: string
   groupId: string
   status: PointStatus
-  /** The badge text: "Use", "Correct", "Plot only", "Retest", "Cannot confirm", "Left out" */
+  /** The badge text: "Use", "Correct", "Plot separately", "Retest", "Cannot confirm", "Left out" */
   label: string
   /** The checks behind the status, worst first ("throttle moved inside the record") */
   reasons: string[]

@@ -480,9 +480,10 @@ function checksSection(rows: readonly ChecklistRow[], file: string): string[] {
   return [
     "% The test-validity checklists (Test points and Dynamic modes tabs) as X-Plane Plotter computed them when this",
     '% script was exported: one row per check with its status, the value measured, the criterion and the sources',
-    '% (statuses: pass, warn, fail, not checkable, not settled, info; "engineering judgement" marks thresholds no source',
-    '% gives). They are the app\'s values, written here as they are, not recomputed: export the script again after',
-    '% changing the test points, the plot or the window.',
+    '% (statuses: pass, warn, fail, not checkable, not settled, info; "engineering judgement" marks a check with a limit',
+    '% no published source gives, and "sourced" lists the numbers a source does give). They are the app\'s values,',
+    '% written here as they are, not recomputed: export the script again after changing the test points, the plot or',
+    '% the window.',
     `checkHeader = {${header}};`,
     'checkRows = {',
     ...rows.map((r) => `    ${CHECKLIST_COLUMNS.map((c) => cell(r[c])).join(', ')}`),

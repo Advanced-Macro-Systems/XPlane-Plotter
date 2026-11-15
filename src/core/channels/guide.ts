@@ -76,7 +76,7 @@ export function loggingGuide(): LoggingRecommendation[] {
     {
       title: 'Static stability & trim',
       summary:
-        'Trimmed points of 30–60 s at several speeds and at two or more CG positions: elevator (or trim) to trim against CL or speed.',
+        'Trimmed points of 30–60 s (the app’s recommendation) at several speeds and at two or more CG positions, at a fixed power setting: plot elevator (or trim) to trim against CL, the course’s method.',
       rows: [
         row('elevator-deflections', 'Elevator angle δe in degrees (positive trailing edge down).'),
         row('joystick', 'Pilot input: shows the controls were held fixed.'),
@@ -86,6 +86,12 @@ export function loggingGuide(): LoggingRecommendation[] {
         row('fuel-weights', 'CG drift as fuel burns.'),
         row('servos', 'Autopilot servo commands: with the stick and the elevator they show who flew pitch, pilot or autopilot.'),
         row('artificial-stability', 'Stability augmentation: it should stay 0.'),
+        row('throttle-commanded', 'Power setting (lever position): the checklist confirms it stayed fixed through each point.'),
+        row('throttle-actual', 'The throttle reaching each engine: an autothrottle or FADEC can move it with the lever still.'),
+        row('ap-modes', 'Autopilot and autothrottle modes: shows whether the autothrottle was engaged.'),
+        row('n1', 'Spool speed (jets): shows the power stayed fixed.'),
+        row('engine-power', 'Shaft power (propeller aircraft): shows the power stayed fixed.'),
+        row('gear-brakes', 'Gear position: part of the configuration each trim line is flown in.'),
         row('control-forces', 'Stick force (optional; it reads 0 on aircraft without a control-feel model).'),
         row('angular-moments', 'Total pitching moment near 0 confirms the trim (optional).'),
       ],
@@ -93,7 +99,7 @@ export function loggingGuide(): LoggingRecommendation[] {
     {
       title: 'Dynamic stability modes',
       summary:
-        'Disk Rate 20 /s or more, autopilot and yaw damper off. Phugoid: speed, θ and altitude; short period: α, Q and nz; Dutch roll: β, R and P; roll subsidence: P and φ; spiral: φ and ψ.',
+        'Disk Rate 20 /s or more (NATO asks at least 10), autopilot off, and the yaw damper off to measure the bare airframe (the app’s choice: the sources ask only that its state is recorded). Phugoid: speed, θ and altitude; short period: α, Q and nz; Dutch roll: β, R and P; roll subsidence: P and φ; spiral: φ and ψ.',
       rows: [
         row('angular-velocities', 'Body rates P, Q and R in deg/s.'),
         row('angular-accelerations', 'Angular accelerations in deg/s².'),
@@ -103,6 +109,12 @@ export function loggingGuide(): LoggingRecommendation[] {
         row('rudder-deflections', 'Rudder angle δr in degrees.'),
         row('artificial-stability', 'The yaw damper (`ruddr,astab`) must stay 0 for bare-airframe modes.'),
         row('servos', 'With Joystick and Flight controls, shows the surfaces followed the stick, not the autopilot.'),
+        row('throttle-commanded', 'Power setting (lever position): the checklist confirms it stayed fixed through the run.'),
+        row('throttle-actual', 'The throttle reaching each engine: an autothrottle or FADEC can move it with the lever still.'),
+        row('ap-modes', 'Autopilot and autothrottle modes: shows whether the autothrottle was engaged.'),
+        row('n1', 'Spool speed (jets): shows the power stayed fixed.'),
+        row('gear-brakes', 'Gear position: confirms the configuration did not change.'),
+        row('point-weather-precip-wind', 'Wind and turbulence at the aircraft: calm air for the run.'),
         row('angular-moments', 'Total rolling, pitching and yawing moments (optional).'),
       ],
     },

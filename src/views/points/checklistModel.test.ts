@@ -17,10 +17,12 @@ describe('perfSets: the preset’s curve when the X–Y plot is not a range-and-
     const [set] = perfSets(ds, ws)
     expect(set.y?.token).toBe('engn1,___hp')
     expect(set.fit).toBe('power-model')
-    // The construction check still asks for the engine type.
+    // The construction check still asks for the engine type: a warning pointing to the setting, not a block on the verdict.
     const [{ report }] = perfChecklists(ds, ws)
     expect(report.propulsion).toBeNull()
-    expect(report.set.find((c) => c.id === 'construction')?.status).toBe('not-checkable')
+    const construction = report.set.find((c) => c.id === 'construction')
+    expect(construction?.status).toBe('warn')
+    expect(construction?.hint).toMatch(/checklist settings/)
   })
 
   it('with thrust logged (or declared jet) it stays on the thrust curve and the drag model', () => {

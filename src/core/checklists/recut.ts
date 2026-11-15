@@ -8,9 +8,11 @@ import type { Check, PointReport } from './types'
 import {
   engineChannels,
   findChannel,
+  LEVER_ACTUAL,
   leverChannels,
   N1,
   POWER_HP,
+  POWER_LEGACY,
   smoothInside,
   sumChannels,
   THRUST,
@@ -73,31 +75,55 @@ export interface Recut {
 }
 
 /**
- * The longest still stretch of a point: every lever within 0.002 (else 0.01) and the summed thrust (else engine power,
- * smoothed over ±1 s inside the point) within 1 % (else 3 %) of its median; N1 within 0.5 (else 1.5) %pt without either;
- * with `trim`, the pitch trim within 0.002 (else 0.02) too. A stretch that ends before the point does ends a second
- * short of the change (thrust and speed follow the lever). Null when no stretch of at least `minSeconds` exists.
+ * The longest still stretch of a point, in the bands of the checklist's own throttle-fixed check (pass bands, else its
+ * warn bands):
+ * - performance (the default): every lever within 0.002 (else 0.01) and the summed thrust (else engine power, smoothed
+ *   over ±1 s inside the point) within 1 % (else 3 %) of its median; N1 within 0.5 (else 1.5) %pt without either;
+ * - static, which judges the setting, not the force it produces: every lever, and the throttle reaching each engine
+ *   (row 26) when logged, within 0.005 (else 0.02); without a setting row N1 within 0.5 (else 1.5) %pt, and without N1
+ *   the force within 2 % (else 5 %) of its median.
+ * With `trim`, the pitch trim within 0.002 (else 0.02) too, or within `trimBand` (a performance point, whose trim-fixed
+ * check warns only on a step: 0.02) in both. A stretch that ends before the point does ends a second short of the change
+ * (thrust and speed follow the lever). Null when no stretch of at least `minSeconds` exists.
  */
-export function recutPoint(ds: Dataset, point: Pick<TestPoint, 'start' | 'end'>, options: { trim?: boolean; minSeconds?: number } = {}): Recut | null {
+export function recutPoint(
+  ds: Dataset,
+  point: Pick<TestPoint, 'start' | 'end'>,
+  options: { trim?: boolean; trimBand?: number; minSeconds?: number; kind?: 'static' | 'performance' } = {},
+): Recut | null {
   const a = Math.max(0, point.start)
   const b = Math.min(ds.rowCount, point.end)
   if (b - a < 3) return null
   const time = ds.elapsed
   const minSeconds = options.minSeconds ?? 5
+  const isStatic = options.kind === 'static'
   const levers = leverChannels(ds)
+  // The static setting also counts the throttle reaching the engines, unless the levers already are those channels.
+  const actual = isStatic && !(levers.length && /^thro\d,engin$/.test(levers[0].token)) ? engineChannels(ds, LEVER_ACTUAL) : []
+  const setting = [...levers, ...actual]
   const thrusts = engineChannels(ds, THRUST)
-  const powers = engineChannels(ds, POWER_HP)
+  const powers = engineChannels(ds, POWER_HP).length ? engineChannels(ds, POWER_HP) : engineChannels(ds, POWER_LEGACY)
   const n1s = engineChannels(ds, N1)
   const trim = options.trim ? findChannel(ds, '_trim,_elev') : null
   const force = thrusts.length ? thrusts : powers
   const forceSum = force.length ? smoothInside(sumChannels(force, a, b), time.subarray(a, b), 0, b - a, 1) : null
   const forceLevel = forceSum ? Math.abs(medianOf(forceSum)) : NaN
+  const trimBand = options.trimBand
   const bandsFor = (level: 'pass' | 'warn'): Band[] => {
-    const w = level === 'pass' ? { lever: 0.002, force: 0.01, n1: 0.5, trim: 0.002 } : { lever: 0.01, force: 0.03, n1: 1.5, trim: 0.02 }
-    const bands: Band[] = levers.map((ch) => ({ values: ch.values.subarray(a, b), width: w.lever }))
-    if (forceSum && forceLevel > 0) bands.push({ values: forceSum, width: w.force * forceLevel })
-    else for (const ch of n1s) bands.push({ values: smoothInside(ch.values, time, a, b, 1), width: w.n1 })
-    if (trim) bands.push({ values: trim.values.subarray(a, b), width: w.trim })
+    const trimWidth = level === 'pass' ? (trimBand ?? 0.002) : Math.max(trimBand ?? 0, 0.02)
+    const bands: Band[] = []
+    if (isStatic) {
+      const w = level === 'pass' ? { setting: 0.005, n1: 0.5, force: 0.02 } : { setting: 0.02, n1: 1.5, force: 0.05 }
+      for (const ch of setting) bands.push({ values: ch.values.subarray(a, b), width: w.setting })
+      if (!setting.length && n1s.length) for (const ch of n1s) bands.push({ values: smoothInside(ch.values, time, a, b, 1), width: w.n1 })
+      else if (!setting.length && forceSum && forceLevel > 0) bands.push({ values: forceSum, width: w.force * forceLevel })
+    } else {
+      const w = level === 'pass' ? { lever: 0.002, force: 0.01, n1: 0.5 } : { lever: 0.01, force: 0.03, n1: 1.5 }
+      for (const ch of levers) bands.push({ values: ch.values.subarray(a, b), width: w.lever })
+      if (forceSum && forceLevel > 0) bands.push({ values: forceSum, width: w.force * forceLevel })
+      else for (const ch of n1s) bands.push({ values: smoothInside(ch.values, time, a, b, 1), width: w.n1 })
+    }
+    if (trim) bands.push({ values: trim.values.subarray(a, b), width: trimWidth })
     return bands
   }
   const pick = (level: 'pass' | 'warn'): Recut | null => {
@@ -126,17 +152,24 @@ function medianOf(values: ArrayLike<number>): number {
   return xs.length % 2 ? xs[mid] : (xs[mid - 1] + xs[mid]) / 2
 }
 
+/** Why a point is re-cut, and (a performance point) the trim band its re-cut keeps to; a static point's re-cut bands the setting only. */
+export interface RecutReason {
+  throttle: boolean
+  trim: boolean
+  trimBand?: number
+  kind?: 'static' | 'performance'
+}
+
+/** The trim band of a performance point's re-cut: the size of the step its trim-fixed check warns about. */
+export const PERF_TRIM_BAND = 0.02
+
 /** The points a re-cut would change: those whose throttle-fixed (or trim-fixed) check failed, with their new rows. */
-export function recutPlan(
-  ds: Dataset,
-  points: readonly TestPoint[],
-  failing: ReadonlyMap<string, { throttle: boolean; trim: boolean }>,
-): { point: TestPoint; recut: Recut }[] {
+export function recutPlan(ds: Dataset, points: readonly TestPoint[], failing: ReadonlyMap<string, RecutReason>): { point: TestPoint; recut: Recut }[] {
   const out: { point: TestPoint; recut: Recut }[] = []
   for (const point of points) {
     const why = failing.get(point.id)
     if (!why || (!why.throttle && !why.trim)) continue
-    const recut = recutPoint(ds, point, { trim: why.trim })
+    const recut = recutPoint(ds, point, { trim: why.trim, trimBand: why.trimBand, kind: why.kind })
     if (recut && (recut.start !== point.start || recut.end !== point.end)) out.push({ point, recut })
   }
   return out
@@ -144,16 +177,18 @@ export function recutPlan(
 
 /**
  * What recutPlan takes, from a set checklist's point reports: throttle-fixed failed, or trim-fixed failed (in the
- * performance checklist, where trim-fixed never fails, also when it warned). The Test points panel's "Re-cut … flagged
- * points" and the set verdicts use the same map, so they count the same points.
+ * performance checklist, where trim-fixed never fails and warns only on a step, also when it warned; such a point is
+ * re-cut with the 0.02 trim band, so a slow drift does not split it). The Test points panel's "Re-cut … flagged points"
+ * and the set verdicts use the same map, so they count the same points.
  */
-export function recutFailing(reports: readonly PointReport[], kind: 'static' | 'performance'): Map<string, { throttle: boolean; trim: boolean }> {
+export function recutFailing(reports: readonly PointReport[], kind: 'static' | 'performance'): Map<string, RecutReason> {
   return new Map(
     reports.map((p) => [
       p.pointId,
       {
         throttle: p.checks.some((c) => c.id === 'throttle-fixed' && c.status === 'fail'),
         trim: p.checks.some((c) => c.id === 'trim-fixed' && (c.status === 'fail' || (kind === 'performance' && c.status === 'warn'))),
+        ...(kind === 'performance' ? { trimBand: PERF_TRIM_BAND } : { kind }),
       },
     ]),
   )

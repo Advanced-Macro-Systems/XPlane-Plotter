@@ -16,7 +16,11 @@ export function checklistMode(ds: Dataset, ws: Pick<Workspace, 'modes' | 'points
   return named ? { mode: named.id, from: 'test point' } : { mode: null, from: null }
 }
 
-/** The checklist of a window (null until the mode is known). */
+/**
+ * The checklist of a window (null until the mode is known). The other test points named after the same mode are passed
+ * by name for the repeats line: their fits are not run here (one fit takes tens of milliseconds and the tab runs fits
+ * in a worker), so the checklist asks the student to compare them.
+ */
 export function modeChecklist(ds: Dataset, ws: Pick<Workspace, 'modes' | 'points'>, rows: RowRange, result: ModeFit | null, point: TestPoint | null): DynamicReport | null {
   const { mode } = checklistMode(ds, ws, point)
   if (!mode) return null
@@ -25,7 +29,8 @@ export function modeChecklist(ds: Dataset, ws: Pick<Workspace, 'modes' | 'points
       ? fitSummary({ model: 'oscillation', fit: result.fit, r2Oscillation: result.detrend === 'linear' ? result.r2Oscillation : undefined })
       : fitSummary({ model: 'first-order', fit: result.fit })
     : null
-  return runDynamicChecks({ ds, mode, rows, fit, settings: ws.modes.check })
+  const otherPoints = ws.points.filter((p) => p.id !== point?.id && presetForPoint(p.name)?.id === mode).map((p) => p.name)
+  return runDynamicChecks({ ds, mode, rows, fit, settings: ws.modes.check, channelId: ws.modes.channelId ?? undefined, otherPoints })
 }
 
 /** The checklist as CSV (or TSV with '\t'). */

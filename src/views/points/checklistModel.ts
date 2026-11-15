@@ -159,7 +159,7 @@ const POINT_ORDER: readonly PointStatus[] = ['used', 'correct', 'plot-only', 'le
 const POINT_WORD: Readonly<Record<PointStatus, string>> = {
   used: 'use',
   correct: 'correct',
-  'plot-only': 'plot only',
+  'plot-only': 'plot separately',
   'left-out': 'left out',
   excluded: 'retest',
   'cannot-confirm': 'cannot confirm',

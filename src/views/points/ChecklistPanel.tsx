@@ -113,10 +113,12 @@ export function ChecklistPanel({ ds, ws }: { ds: Dataset; ws: Workspace }) {
             <OpenItems items={report.open} testId="points-checklist-open" />
             <p className="pt-cl-foot">
               Each check gives what was measured, the criterion and its source (NATO AG-300 v14 = the NATO flight test
-              handbook RTO-AG-300 Vol. 14; FD = lecture decks; Brief = the coursework brief).{' '}
+              handbook RTO-AG-300 Vol. 14; FD = lecture decks; Brief = the coursework brief; App = this app’s own
+              defaults, not a published source). The sources say what to check; they rarely give a number for it.{' '}
               <span className="ck-tag">judgement</span>{' '}
-              marks a threshold no source gives as a number (engineering judgement). Questions the sources leave open are never
-              pass or fail: ask on EdDiscussion.
+              marks a check with a limit no source gives (engineering judgement: this app’s choice); “From the sources”
+              lists the numbers a source does give. Questions the sources leave open are never pass or fail: ask on
+              EdDiscussion.
             </p>
           </>
         )}
