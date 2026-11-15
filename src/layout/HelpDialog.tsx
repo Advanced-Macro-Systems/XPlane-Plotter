@@ -204,6 +204,51 @@ function UseHelp() {
         subsidence or spiral.
       </p>
 
+      <h3>Test validity checklists</h3>
+      <p>
+        The app checks whether each test was flown the way the course’s sources ask, check by check, with the value measured,
+        the criterion and the source (document and page), each marked <strong>Pass</strong>, <strong>Warn</strong>,{' '}
+        <strong>Fail</strong>, <strong>Not checkable</strong> (the log lacks a row: it names the Data Output row to tick) or{' '}
+        <strong>Info</strong>. A <code>judgement</code> tag marks a threshold no source gives as a number (engineering
+        judgement); where the sources differ the row says which one it follows. Questions the sources do not settle (are
+        autopilot-held trim points accepted? lateral-directional static stability? is one CG enough?) are listed under{' '}
+        <strong>Not settled by the sources — ask on EdDiscussion</strong>, never as pass or fail.
+      </p>
+      <ul className="sh-help-list">
+        <li>
+          <strong>Test points → Test validity checklist</strong>: choose <em>Performance — range &amp; endurance</em> or{' '}
+          <em>Static stability — trim curve</em>. It judges the points the X–Y analysis uses (the visible points of the X–Y
+          group filter): a badge per point (expand it for its checks; leave a point out of the fit), the set checks (C
+          <sub>L</sub> range, trim variable, CG lines, point count, the brackets around V<sub>E</sub> and V<sub>R</sub>…) and
+          the verdict: <em>Acceptable for analysis</em>, <em>Retest required</em>, <em>Cannot confirm</em> or{' '}
+          <em>Fix the analysis</em>. When the throttle (or the trim) moved inside points, <strong>Re-cut … flagged
+          points</strong> cuts each to its longest stretch where it stayed still (with Undo): Find steady points accepts the
+          power within ± 3 %, so a window it finds can start while the throttle is still being trimmed (when that alone
+          could leave enough usable points, the verdict says <em>Fix the analysis — re-cut …</em> rather than fly more).{' '}
+          <strong>Fit the used points only</strong> makes the X–Y fit leave out what the verdict
+          leaves out.
+        </li>
+        <li>
+          <strong>Dynamic modes → Test validity</strong>: for the window and mode analysed, the trim before the input, the
+          input found (shape, size, timing), autopilot, yaw damper and throttle off, controls fixed, record length and the fit.
+        </li>
+        <li>
+          <strong>X–Y plot</strong>: with the range-and-endurance markers on, or a trim curve (elevator or stabiliser against C
+          <sub>L</sub>), a one-line summary and <strong>Open checklist</strong>.
+        </li>
+        <li>
+          Export → <strong>Checklist (CSV)</strong> (Test points) or <strong>Test validity checklist (CSV)</strong> (Dynamic
+          modes); the MATLAB script writes the same results to <code>out/test_checks.csv</code> (one tab’s script:{' '}
+          <code>out/test_checks_xy.csv</code> or <code>out/test_checks_modes.csv</code>).
+        </li>
+      </ul>
+      <p className="sh-help-note">
+        Sources: the course lectures (FD03–FD13, Flight Test Introduction and Flight Test 2), M. V. Cook, <em>Flight
+        Dynamics Principles</em> (3rd ed.), the NATO flight test handbook RTO-AG-300 Vol. 14 (cited as “NATO AG-300 v14
+        p.13-10”), the coursework brief and briefing slides, and the MIL-F-8785C background and user guide for the
+        handling-qualities levels. The checks judge an X-Plane model at the conditions flown, not the real aircraft.
+      </p>
+
       <h3>Formulas</h3>
       <p>
         <strong>Channels → New formula</strong> makes a channel from others, row by row, e.g.{' '}

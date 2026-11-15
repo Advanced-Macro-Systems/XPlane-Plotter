@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Dataset, Workspace } from '../types'
-import { matlabScript, matlabScriptName, matlabString, SERIES_COLORS, type MatlabExportOptions } from './matlab'
+import { checksFileName, matlabScript, matlabScriptName, matlabString, SERIES_COLORS, type MatlabExportOptions } from './matlab'
 import { MATLAB_LIBRARY_FUNCTIONS, matlabLibrary } from './matlabLibrary'
 import { derivedChannel, fileChannel, makeDataset, makeWorkspace, sampleDataset } from './testFixtures'
 
@@ -454,5 +454,54 @@ describe('matlabLibrary', () => {
     expect(lib).toContain('floorLevel = 0.1 * max(abs(d(pos)));')
     expect(lib).toMatch(/< 0\.6 \* period[\s\S]*> 1\.5 \* period/)
     expect(lib).toContain('zeta = delta / sqrt(4 * pi ^ 2 + delta ^ 2);')
+  })
+})
+
+describe('matlabScript: test-validity checks', () => {
+  const row = (patch: Partial<Record<string, string>>) => ({
+    checklist: 'static stability',
+    set: 'Trim points',
+    point: 'P1',
+    check: 'speed-steady',
+    title: 'Speed held steady',
+    status: 'pass',
+    severity: 'critical',
+    measured: 'drift +0.4 kt/min, 2σ 0.2 kt',
+    criterion: 'pass |drift| ≤ 1 kt/min',
+    judgement: 'engineering judgement',
+    follows: '',
+    citations: 'NATO AG-300 v14 p.13-10',
+    hint: '',
+    ...patch,
+  })
+
+  it('writes the app’s checklist rows to out/test_checks.csv, with a comment saying they are not recomputed', () => {
+    const text = script({ checks: [row({}), row({ point: '=cmd', measured: "it's −2" })] })
+    const b = body(text)
+    expect(b).toContain('%% ')
+    expect(b).toMatch(/Test validity checks -> out\/test_checks\.csv/)
+    expect(b).toContain("checkHeader = {'checklist', 'set', 'point', 'check', 'title', 'status', 'severity', 'measured', 'criterion', 'judgement', 'follows', 'citations', 'hint'};")
+    expect(b).toContain('not recomputed')
+    expect(b).toContain("writetable(checkTable, fullfile(outDir, 'test_checks.csv'));")
+    // A formula-like cell is defused; quotes doubled; non-ASCII as char codes.
+    expect(b).toContain("'''=cmd'")
+    expect(b).toContain("'it''s ' char(8722) '2'")
+    expect(text.slice(0, text.indexOf('%% 1. Settings'))).toContain('out/test_checks.csv')
+  })
+
+  it('leaves the section out without checks', () => {
+    expect(script()).not.toContain('test_checks.csv')
+    expect(script({ checks: [] })).not.toContain('test_checks.csv')
+  })
+
+  it('names the file per script, so the X–Y and Dynamic modes scripts run in one folder do not overwrite each other', () => {
+    expect(checksFileName(ALL)).toBe('test_checks.csv')
+    const xy = script({ checks: [row({})], include: { points: true, xy: true, time: false, modes: false } })
+    expect(body(xy)).toContain("writetable(checkTable, fullfile(outDir, 'test_checks_xy.csv'));")
+    expect(xy).not.toContain("'test_checks.csv'")
+    expect(xy.slice(0, xy.indexOf('%% 1. Settings'))).toContain('out/test_checks_xy.csv')
+    const modes = script({ checks: [row({ checklist: 'dynamic modes' })], include: { points: false, xy: false, time: false, modes: true } })
+    expect(body(modes)).toContain("writetable(checkTable, fullfile(outDir, 'test_checks_modes.csv'));")
+    expect(modes).not.toContain("'test_checks.csv'")
   })
 })

@@ -13,13 +13,16 @@ import { assignSlots, slotsValid } from '../core/slots'
 import type {
   Dataset,
   DerivedDef,
+  ModesCheckSettings,
   ModesConfig,
   PanelConfig,
+  PerfCheckSettings,
   PointGroup,
   RowRange,
   TabId,
   TestPoint,
   TimeBaseId,
+  TrimCheckSettings,
   Workspace,
   XYConfig,
 } from '../core/types'
@@ -102,6 +105,8 @@ export interface AppState {
   channelsRequest: ChannelsRequest | null
   /** The open "add several test points" dialog (openPointsTool), or null */
   pointsTool: PointsTool | null
+  /** Another view asked the Test points tab to show its checklist (openChecklist); taken by the Points view */
+  checklistRequest: { kind: 'performance' | 'static' } | null
   toasts: Toast[]
   /**
    * The last try to save a workspace in this browser failed (storage full or blocked): test points last only until
@@ -120,6 +125,7 @@ export const useApp = create<AppState>(() => ({
   selection: null,
   channelsRequest: null,
   pointsTool: null,
+  checklistRequest: null,
   toasts: [],
   saveFailed: false,
 }))
@@ -646,6 +652,17 @@ export function closePointsTool(): void {
   if (get().pointsTool) set({ pointsTool: null })
 }
 
+/** Opens the Test points tab on its checklist panel, showing the performance or static-stability checklist. */
+export function openChecklist(kind: 'performance' | 'static'): void {
+  setChecklistKind(kind)
+  set({ tab: 'points', checklistRequest: { kind } })
+}
+
+/** The Points view has shown the checklist the request asked for: forget the request. */
+export function clearChecklistRequest(): void {
+  if (get().checklistRequest) set({ checklistRequest: null })
+}
+
 // ------------------------------------------------------------------ zoom range and selection (rows)
 
 function clampRange(range: RowRange | null): RowRange | null {
@@ -816,6 +833,47 @@ export function setModes(patch: Partial<ModesConfig>): void {
 
 export function setTracked(ids: string[]): void {
   updateWorkspace((ws) => ({ ...ws, tracked: [...new Set(ids)] }))
+}
+
+/** The object without undefined fields, or undefined when it is empty (absent settings = defaults). */
+function withoutUndefined<T extends object>(value: T): T | undefined {
+  const out = Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as T
+  return Object.keys(out).length ? out : undefined
+}
+
+/** Changes the static-stability checklist's settings (a field set to undefined goes back to its default). */
+export function setTrimCheck(patch: Partial<TrimCheckSettings>): void {
+  updateWorkspace((ws) => {
+    const trimCheck = withoutUndefined({ ...ws.trimCheck, ...patch })
+    const next: Workspace = { ...ws, trimCheck }
+    if (!trimCheck) delete next.trimCheck
+    return next
+  })
+}
+
+/** Changes the range-and-endurance checklist's settings. */
+export function setPerfCheck(patch: Partial<PerfCheckSettings>): void {
+  updateWorkspace((ws) => {
+    const perfCheck = withoutUndefined({ ...ws.perfCheck, ...patch })
+    const next: Workspace = { ...ws, perfCheck }
+    if (!perfCheck) delete next.perfCheck
+    return next
+  })
+}
+
+/** Changes the Dynamic modes checklist's settings (ModesConfig.check). */
+export function setModesCheck(patch: Partial<ModesCheckSettings>): void {
+  updateWorkspace((ws) => {
+    const check = withoutUndefined({ ...ws.modes.check, ...patch })
+    const modes: ModesConfig = { ...ws.modes, check }
+    if (!check) delete modes.check
+    return { ...ws, modes }
+  })
+}
+
+/** Which checklist the Test points tab shows. */
+export function setChecklistKind(kind: 'performance' | 'static'): void {
+  updateWorkspace((ws) => (ws.checklist?.kind === kind ? ws : { ...ws, checklist: { kind } }))
 }
 
 /**

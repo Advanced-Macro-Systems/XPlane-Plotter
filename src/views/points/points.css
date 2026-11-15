@@ -684,3 +684,247 @@
     max-width: none;
   }
 }
+
+/* ---------------------------------------------------------------- test-validity checklist (ChecklistPanel) */
+
+.pt-checklist {
+  margin-top: 20px;
+  scroll-margin-top: 12px;
+}
+.pt-cl-header {
+  flex-wrap: wrap;
+}
+.pt-cl-heading {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 320px;
+  flex-direction: column;
+  gap: 2px;
+}
+.pt-cl-heading h3:focus-visible {
+  border-radius: var(--radius-sm);
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+.pt-cl-sub {
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.pt-cl-actions {
+  display: flex;
+  gap: 4px;
+}
+.pt-cl-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pt-cl-kind {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.pt-cl-kind .segmented {
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+.pt-cl-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.pt-cl-plotted {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.pt-cl-deq {
+  flex-wrap: wrap;
+  align-items: center;
+}
+.pt-cl-deq > span {
+  min-width: 0;
+  flex: 1 1 260px;
+  overflow-wrap: anywhere;
+}
+.pt-cl-section {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+.pt-cl-h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.pt-cl-count {
+  color: var(--text-subtle);
+  font-weight: 500;
+}
+.pt-cl-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.pt-cl-table {
+  min-width: 520px;
+}
+.pt-cl-table td {
+  height: auto;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  vertical-align: top;
+  white-space: normal;
+}
+.pt-cl-expand {
+  display: inline-flex;
+  max-width: 260px;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.pt-cl-expand:hover {
+  background: var(--surface-hover);
+}
+.pt-cl-expand:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 1px;
+}
+.pt-cl-dot {
+  flex: none;
+}
+.pt-cl-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pt-cl-attention-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.pt-cl-detail > td {
+  background: var(--surface-2);
+}
+.pt-cl-detail .ck-list {
+  margin-bottom: 8px;
+}
+.pt-cl-reasons {
+  margin: 0 0 4px;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.pt-cl-points-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+.pt-cl-point-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pt-cl-fit-used {
+  font-size: 13px;
+}
+.pt-cl-points-of ul {
+  margin: 4px 0 0;
+  padding-left: 0;
+  list-style: none;
+}
+.pt-cl-points-of li {
+  margin: 3px 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.pt-cl-settings > summary {
+  color: var(--info-text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+.pt-cl-settings > summary:focus-visible {
+  border-radius: var(--radius-sm);
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+.pt-cl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px 14px;
+  margin-top: 10px;
+}
+.pt-cl-wide {
+  grid-column: 1 / -1;
+}
+.pt-cl-foot {
+  margin: 0;
+  color: var(--text-subtle);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 560px) {
+  .pt-cl-actions {
+    width: 100%;
+  }
+  /* Phones: each point is a block (name and verdict, then what to look at), so nothing scrolls sideways. */
+  .pt-cl-table-wrap {
+    overflow-x: visible;
+  }
+  .pt-cl-table {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+  .pt-cl-table thead {
+    display: none;
+  }
+  .pt-cl-table tbody,
+  .pt-cl-table tr.pt-cl-point,
+  .pt-cl-table tr.pt-cl-detail {
+    display: block;
+  }
+  .pt-cl-table tr.pt-cl-point {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+  .pt-cl-table tr.pt-cl-point > td {
+    display: block;
+    border-bottom: 0;
+  }
+  .pt-cl-table tr.pt-cl-point > td.pt-cl-attention {
+    grid-column: 1 / -1;
+    padding-top: 0;
+  }
+  .pt-cl-table tr.pt-cl-detail > td {
+    display: block;
+  }
+  .pt-cl-expand {
+    max-width: 100%;
+  }
+  .pt-cl-kind .segmented {
+    width: 100%;
+  }
+  .pt-cl-grid {
+    grid-template-columns: 1fr;
+  }
+}

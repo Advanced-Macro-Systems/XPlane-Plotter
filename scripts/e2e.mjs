@@ -8,8 +8,9 @@
 // `vite preview`, opens the landing page, loads the demo flight and (optionally) a real log through
 // the real file input, visits every tab in light and dark, drags a selection and saves a test point, picks the X–Y
 // range-and-endurance preset on the demo, runs Find steady points (on the real log it adds what it finds) and Add
-// points from times, and screenshots each step into --out. It fails (exit 1) on any console error, page error or
-// failed step.
+// points from times, opens the test-validity checklists (Test points panel, both kinds, each keeping its own settings;
+// Dynamic modes card; the X–Y summary; on the real log both set checklists, re-cutting flagged points when offered),
+// and screenshots each step into --out. It fails (exit 1) on any console error, page error or failed step.
 
 import { spawn } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
@@ -161,6 +162,82 @@ async function rangeEndurance(page, shotName) {
   await shot(page, shotName)
 }
 
+/**
+ * The Test points checklist panel: each test type in turn, its verdict and per-point badges rendered. Returns the
+ * verdicts. With `recut`, clicks "Re-cut … flagged points" when it is offered and waits for the verdict to update.
+ */
+async function setChecklists(page, shotName, { recut = false } = {}) {
+  await page.getByTestId('tab-points').click()
+  const panel = page.getByTestId('points-checklist')
+  await panel.waitFor({ state: 'visible', timeout: 10_000 })
+  const verdicts = {}
+  for (const [kind, label] of [['static', /^Static stability/], ['performance', /^Performance/]]) {
+    await panel.getByRole('radio', { name: label }).click()
+    const verdict = page.getByTestId('points-checklist-verdict')
+    await verdict.waitFor({ state: 'visible', timeout: 10_000 })
+    if (!(await page.getByTestId('points-checklist-point').count())) throw new Error(`no point rows in the ${kind} checklist`)
+    if (recut && (await page.getByTestId('points-checklist-recut').count())) {
+      const before = await verdict.innerText()
+      await page.getByTestId('points-checklist-recut').click()
+      await page.waitForFunction((text) => document.querySelector('[data-testid="points-checklist-verdict"]')?.textContent !== text, before, { timeout: 10_000 })
+      verdicts[`${kind} (before re-cut)`] = before.split('\n')[0]
+    }
+    verdicts[kind] = (await verdict.innerText()).split('\n')[0]
+    await panel.scrollIntoViewIfNeeded()
+    await sleep(300)
+    await panel.screenshot({ path: join(OUT, `${shotName}-${kind}.png`) })
+  }
+  return verdicts
+}
+
+/**
+ * The checklist settings belong to each test type: a value typed into one type's field (saved when the field loses
+ * focus) must neither show in the other type's field at the same place after switching, nor be saved into it.
+ */
+async function checklistSettingsPerType(page, shotName) {
+  await page.getByTestId('tab-points').click()
+  const panel = page.getByTestId('points-checklist')
+  await panel.waitFor({ state: 'visible', timeout: 10_000 })
+  await panel.getByRole('radio', { name: /^Performance/ }).click()
+  const details = panel.locator('details.pt-cl-settings')
+  if (!(await details.evaluate((el) => el.open))) await details.locator('summary').click()
+  const kappa = panel.getByLabel('Thrust line κ (deg, nose up)')
+  await kappa.fill('2')
+  await panel.getByRole('radio', { name: /^Static stability/ }).click()
+  const gain = panel.getByLabel('Trim gain G (elevator per trim unit)')
+  await gain.waitFor({ state: 'visible', timeout: 5000 })
+  const shown = await gain.inputValue()
+  if (shown !== '') throw new Error(`the static "Trim gain G" shows "${shown}" after typing κ = 2 in Performance`)
+  await gain.focus()
+  await page.keyboard.press('Tab')
+  await sleep(300)
+  if ((await panel.innerText()).includes('G 2 (given)')) throw new Error('κ typed in Performance was saved as the static trim gain G')
+  await details.screenshot({ path: join(OUT, `${shotName}.png`) })
+  // Back in Performance κ keeps its own value; clear it so the later steps see the defaults.
+  await panel.getByRole('radio', { name: /^Performance/ }).click()
+  const kept = await kappa.inputValue()
+  if (kept !== '2') throw new Error(`Performance κ shows "${kept}" after switching back, not 2`)
+  await kappa.fill('')
+  await page.keyboard.press('Tab')
+}
+
+/** The Dynamic modes checklist on a test point named after a mode. */
+async function modesChecklist(page, pointName, shotName) {
+  await page.getByTestId('tab-modes').click()
+  await page.getByTestId('view-modes').waitFor()
+  const select = page.locator('select[aria-label="Test point"]')
+  if (!(await select.count())) await page.getByRole('radio', { name: 'Test point' }).click()
+  const value = await page.$eval('select[aria-label="Test point"]', (el, name) => [...el.options].find((o) => o.text.startsWith(name))?.value ?? '', pointName)
+  if (!value) throw new Error(`no test point named ${pointName}`)
+  await page.selectOption('select[aria-label="Test point"]', value)
+  const verdict = page.getByTestId('modes-checklist-verdict')
+  await verdict.waitFor({ state: 'visible', timeout: 15_000 })
+  if ((await page.getByTestId('modes-checklist-row').count()) < 20) throw new Error('the Dynamic modes checklist has too few rows')
+  await sleep(800)
+  await page.getByTestId('modes-checklist').screenshot({ path: join(OUT, `${shotName}.png`) })
+  return (await verdict.innerText()).split('\n')[0]
+}
+
 /** The number of test-point rows, once it equals `n`. */
 async function pointRows(page, n) {
   await page.waitForFunction((count) => document.querySelectorAll('[data-testid="points-row"]').length === count, n, {
@@ -257,6 +334,26 @@ try {
     await rangeEndurance(page, 'demo-xy-range-endurance')
   })
 
+  await step('X–Y checklist summary and Open checklist (demo)', async () => {
+    await page.getByTestId('xy-checks-perf-verdict').waitFor({ state: 'visible', timeout: 10_000 })
+    await page.getByTestId('xy-checks-perf').screenshot({ path: join(OUT, 'demo-xy-checklist-summary.png') })
+    await page.getByTestId('xy-checks-perf-open').click()
+    await page.getByTestId('points-checklist-verdict').waitFor({ state: 'visible', timeout: 10_000 })
+  })
+
+  await step('test-validity checklists, Test points (demo)', async () => {
+    timings['demo checklist verdicts'] = await setChecklists(page, 'demo-checklist')
+  })
+
+  await step('checklist settings stay with their test type (demo)', async () => {
+    await checklistSettingsPerType(page, 'demo-checklist-settings')
+  })
+
+  await step('test-validity checklist, Dynamic modes (demo short period and dutch roll)', async () => {
+    timings['demo short-period verdict'] = await modesChecklist(page, 'Short period', 'demo-modes-checklist-short-period')
+    timings['demo dutch-roll verdict'] = await modesChecklist(page, 'Dutch roll', 'demo-modes-checklist-dutch-roll')
+  })
+
   await step('find steady points (demo: finds the five trim points, all saved)', async () => {
     await findSteadyPoints(page, 'demo-find-steady', { add: false, atLeast: 5 })
   })
@@ -291,6 +388,9 @@ try {
     await step('find steady points (real)', async () => {
       timings['real steady points added'] = await findSteadyPoints(page, 'real-find-steady', { add: true, atLeast: 0 })
       await shot(page, 'real-steady-points')
+    })
+    await step('test-validity checklists, Test points (real)', async () => {
+      timings['real checklist verdicts'] = await setChecklists(page, 'real-checklist', { recut: true })
     })
     await setTheme(page, 'dark')
     await visitTabs(page, 'real-dark')

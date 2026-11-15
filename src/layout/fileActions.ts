@@ -144,13 +144,18 @@ export async function exportMatlab(request: MatlabExportRequest): Promise<void> 
       const { xyAxisLimits } = await import('../views/xy/xyLimits')
       xyLimits = xyAxisLimits(ds, ws, view)
     }
+    const modeRows = request.modeRows !== undefined ? request.modeRows : modeRowsFor(ws, selection, view)
+    // The test-validity checklists, as the app computes them (the script writes them to out/test_checks*.csv).
+    const { checklistRowsForExport } = await import('../views/points/checklistExport')
+    const checks = checklistRowsForExport(ds, ws, { sets: include.points || include.xy, modes: include.modes, modeRows })
     const script = matlabScript({
       ds,
       ws,
       include,
       view: request.view !== undefined ? request.view : view,
-      modeRows: request.modeRows !== undefined ? request.modeRows : modeRowsFor(ws, selection, view),
+      modeRows,
       xyLimits,
+      checks,
     })
     const name = matlabPartName(matlabScriptName(ds.name), request.part)
     downloadText(name, script, 'text/plain')

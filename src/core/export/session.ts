@@ -207,7 +207,15 @@ function parseWorkspace(input: Record<string, unknown>): Workspace {
     xy: parseXY(record(input.xy, 'workspace.xy')),
     modes: parseModes(record(input.modes, 'workspace.modes')),
     tracked: strList(input.tracked, 'workspace.tracked'),
+    // The checklists' settings ride along as they are; sanitizeWorkspace drops anything invalid.
+    ...(isPlainObject(input.trimCheck) ? { trimCheck: input.trimCheck as Workspace['trimCheck'] } : {}),
+    ...(isPlainObject(input.perfCheck) ? { perfCheck: input.perfCheck as Workspace['perfCheck'] } : {}),
+    ...(isPlainObject(input.checklist) ? { checklist: input.checklist as Workspace['checklist'] } : {}),
   }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function parseTimeBase(value: unknown): TimeBaseId {
@@ -314,5 +322,6 @@ function parseModes(modes: Record<string, unknown>): ModesConfig {
     source: source as ModesConfig['source'],
     model: oneOf(modes.model, ['oscillation', 'first-order'] as const, at('model')),
     detrend: oneOf(modes.detrend, ['none', 'linear'] as const, at('detrend')),
+    ...(isPlainObject(modes.check) ? { check: modes.check as ModesConfig['check'] } : {}),
   }
 }

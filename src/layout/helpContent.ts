@@ -9,7 +9,7 @@ export const BEFORE_EVERY_RUN: readonly string[] = [
   'Start each run from a fresh, stable state: loading a flight or repositioning resets the mission clock, and the first seconds after a reset hold junk values.',
   'Set calm ISA weather for performance and trim work.',
   'Tick the same rows for every run in a series, so the files can be compared.',
-  'Disconnect the autopilot for stick-fixed points and dynamic modes; switch the yaw damper off for dutch-roll and spiral tests.',
+  'Disconnect the autopilot for dynamic modes and switch the yaw damper off for dutch-roll and spiral tests. For trim and performance points, write in each point’s note whether the autopilot or autothrottle held it: the sources do not settle whether that is accepted, so ask on EdDiscussion.',
   'Do not pause during a run.',
 ]
 

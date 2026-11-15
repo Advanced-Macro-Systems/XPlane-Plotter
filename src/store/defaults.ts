@@ -3,13 +3,17 @@
 import { channelById } from '../core/dataset'
 import { sanitizeSlots } from '../core/slots'
 import type {
+  ChecklistDeclared,
   Dataset,
   DerivedDef,
+  ModesCheckSettings,
   ModesConfig,
   PanelConfig,
+  PerfCheckSettings,
   PointGroup,
   TestPoint,
   TimeBaseId,
+  TrimCheckSettings,
   Workspace,
   XYConfig,
 } from '../core/types'
@@ -267,12 +271,125 @@ export function sanitizeWorkspace(input: unknown, ds: Dataset): Workspace {
     model: oneOf(modesIn.model, ['oscillation', 'first-order'] as const, 'oscillation'),
     detrend: oneOf(modesIn.detrend, ['none', 'linear'] as const, 'linear'),
   }
+  const modesCheck = sanitizeModesCheck(modesIn.check, ds.rowCount)
+  if (modesCheck) modes.check = modesCheck
 
   const tracked = Array.isArray(input.tracked)
     ? [...new Set(input.tracked.filter((id): id is string => exists(ds, id as string)))].slice(0, 24)
     : fallback.tracked
 
-  return { version: 1, timeBase, panels, groups, points, derived, xy, modes, tracked }
+  // The checklists' settings: optional, present only when set, so older workspaces read unchanged.
+  const trimCheck = sanitizeTrimCheck(input.trimCheck, pointIds)
+  const perfCheck = sanitizePerfCheck(input.perfCheck, pointIds)
+  const checklistKind = isObject(input.checklist) ? input.checklist.kind : undefined
+  return {
+    version: 1,
+    timeBase,
+    panels,
+    groups,
+    points,
+    derived,
+    xy,
+    modes,
+    tracked,
+    ...(trimCheck ? { trimCheck } : {}),
+    ...(perfCheck ? { perfCheck } : {}),
+    ...(checklistKind === 'performance' || checklistKind === 'static' ? { checklist: { kind: checklistKind } } : {}),
+  }
+}
+
+// ------------------------------------------------------------------ checklist settings
+
+const MODE_IDS = ['short-period', 'phugoid', 'dutch-roll', 'roll-subsidence', 'spiral'] as const
+
+/** A finite number above zero, else undefined. */
+function positive(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined
+}
+
+/** A finite number (any sign), else undefined. */
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+/** The object without its undefined fields; undefined when nothing is left. */
+function compact<T extends object>(value: T): T | undefined {
+  const out = Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as T
+  return Object.keys(out).length ? out : undefined
+}
+
+/** Positive limits under the given names only. */
+function limitsOf<K extends string>(input: unknown, keys: readonly K[]): Partial<Record<K, number>> | undefined {
+  if (!isObject(input)) return undefined
+  return compact(Object.fromEntries(keys.map((k) => [k, positive(input[k])])) as Partial<Record<K, number>>)
+}
+
+const STATES = ['off', 'on', 'unknown'] as const
+
+function declaredOf(input: unknown): ChecklistDeclared | undefined {
+  if (!isObject(input)) return undefined
+  const modes = typeof input.modes === 'string' && input.modes.trim() && input.modes.length <= 200 ? input.modes : undefined
+  return compact({
+    autopilot: STATES.find((s) => s === input.autopilot),
+    autothrottle: STATES.find((s) => s === input.autothrottle),
+    modes,
+  })
+}
+
+/** Point ids that exist, each once. */
+function pointIdsOf(input: unknown, pointIds: ReadonlySet<string>): string[] | undefined {
+  if (!Array.isArray(input)) return undefined
+  const kept = [...new Set(input.filter((id): id is string => typeof id === 'string' && pointIds.has(id)))]
+  return kept.length ? kept : undefined
+}
+
+/**
+ * Workspace.trimCheck made safe: a positive gain and MAC, any finite LEMAC (the CG reference can lie aft of it), known
+ * trim types, positive limits, declarations of at most 200 characters, existing point ids; undefined when nothing is left.
+ */
+export function sanitizeTrimCheck(input: unknown, pointIds: ReadonlySet<string>): TrimCheckSettings | undefined {
+  if (!isObject(input)) return undefined
+  return compact<TrimCheckSettings>({
+    gain: positive(input.gain),
+    trimType: input.trimType === 'stabiliser' || input.trimType === 'elevator' ? input.trimType : undefined,
+    macFt: positive(input.macFt),
+    lemacFt: finiteNumber(input.lemacFt),
+    limits: limitsOf(input.limits, ['vsKias', 'alphaStallDeg', 'mmo', 'vmoKias'] as const),
+    declared: declaredOf(input.declared),
+    fitExcluded: pointIdsOf(input.fitExcluded, pointIds),
+    fitUsedOnly: input.fitUsedOnly === true ? true : undefined,
+  })
+}
+
+/** Workspace.perfCheck made safe (unknown engine types, non-finite numbers and missing point ids dropped). */
+export function sanitizePerfCheck(input: unknown, pointIds: ReadonlySet<string>): PerfCheckSettings | undefined {
+  if (!isObject(input)) return undefined
+  return compact<PerfCheckSettings>({
+    propulsion: input.propulsion === 'jet' || input.propulsion === 'propeller' ? input.propulsion : undefined,
+    thrustAngleDeg: finiteNumber(input.thrustAngleDeg),
+    referenceWeightLb: positive(input.referenceWeightLb),
+    referenceAltitudeFt: finiteNumber(input.referenceAltitudeFt),
+    limits: limitsOf(input.limits, ['vsKeas', 'mmo', 'vmoKias'] as const),
+    declared: declaredOf(input.declared),
+    fitExcluded: pointIdsOf(input.fitExcluded, pointIds),
+    fitUsedOnly: input.fitUsedOnly === true ? true : undefined,
+  })
+}
+
+/** ModesConfig.check made safe: a known mode, the yaw-damper flag, an input row range inside the file, positive limits. */
+export function sanitizeModesCheck(input: unknown, rowCount: number): ModesCheckSettings | undefined {
+  if (!isObject(input)) return undefined
+  const range = Array.isArray(input.input) ? input.input.map(int) : null
+  const inputRows =
+    range && range.length === 2 && range[0] !== null && range[1] !== null && range[0] >= 0 && range[1] > range[0] && range[1] <= rowCount
+      ? ([range[0], range[1]] as const)
+      : undefined
+  return compact<ModesCheckSettings>({
+    mode: MODE_IDS.find((m) => m === input.mode),
+    yawDamper: input.yawDamper === 'on' || input.yawDamper === 'off' ? input.yawDamper : undefined,
+    input: inputRows,
+    limits: limitsOf(input.limits, ['vmoKias', 'mmo', 'vsKias', 'alphaMaxDeg'] as const),
+  })
 }
 
 /**

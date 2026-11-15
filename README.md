@@ -38,12 +38,22 @@ and propulsion-only control.
 - **Dynamic modes.** Fits a damped oscillation (phugoid, short period, dutch roll) or a first-order response (roll
   subsidence, spiral) to a window. Reports period, ωd, ωn, ζ, time to half amplitude and R², with ζ from the logarithmic
   decrement as a cross-check.
+- **Test validity checklists.** Checks whether a test was flown the way the course's sources ask (the lectures, Cook's
+  *Flight Dynamics Principles*, the NATO flight test handbook RTO-AG-300 Vol. 14 and the brief): for range and
+  endurance and for the static-stability trim curve, the points the X–Y analysis uses (Test points → *Test validity
+  checklist*: a badge per point, the set checks, the verdict); for a dynamic-mode window, the trim before the input,
+  the input, autopilot, yaw damper and throttle, controls fixed, record length and fit (Dynamic modes → *Test
+  validity*). Each check shows pass / warn / fail with the value measured, the criterion and the citation (document and
+  page); thresholds no source gives are tagged *engineering judgement*, and questions the sources do not settle are
+  listed as "ask on EdDiscussion", never as pass or fail. Points whose throttle or trim moved inside them can be
+  re-cut to their still part in one click.
 - **Formulas.** Derived channels such as total thrust, fuel flow, CL from weight, power required, specific excess power,
   specific range and endurance, or anything you type (`drag_lb * Vtrue_ktas * kt2ms * lb2n / 1000`).
 - **Exports.** PNG and SVG figures (white "paper" style), CSV of samples or test-point statistics, session JSON, and a
   **MATLAB script** that re-reads the original log and reproduces the test-point table, X–Y figure (with range and
   endurance, numbers in `out/range_endurance.txt`), time histories and mode fit into `./out/`, so report figures and
-  numbers can come from your `run_all.m`.
+  numbers can come from your `run_all.m`; it also writes the app's checklist results to `out/test_checks.csv` (one
+  tab's script: `out/test_checks_xy.csv` or `out/test_checks_modes.csv`, so scripts run in one folder keep both).
 
 A synthetic **demo flight** (twin-engine airliner with steady points, short period, phugoid, dutch roll, roll subsidence and
 throttle steps) lets you try everything without a log. It opens with its trim points and dynamic-mode windows already

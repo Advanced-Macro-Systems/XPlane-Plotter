@@ -19,6 +19,7 @@ import { channelTitle, describeChannel } from '../../core/channels'
 import { channelById } from '../../core/dataset'
 import { copyText, downloadText, safeFilename } from '../../core/export/download'
 import { formatDuration } from '../../core/time'
+import type { DynamicReport } from '../../core/checklists/dynamic'
 import type { Channel, Dataset, TestPoint, Workspace } from '../../core/types'
 import { exportMatlab } from '../../layout/fileActions'
 import { setModes, setTab, toast, useActiveDataset, useApp, useWorkspace } from '../../store/app'
@@ -48,6 +49,8 @@ import {
   type SourceKind,
   type WindowSeries,
 } from './modesModel'
+import { modeChecklist, modeChecklistCsv } from './modeChecksModel'
+import { ModesChecklist } from './ModesChecklist'
 import { useModeFit } from './useModeFit'
 import './modes.css'
 
@@ -113,6 +116,11 @@ function ModesWorkspace({ ds, ws }: { ds: Dataset; ws: Workspace }) {
     [plot, theme, showResiduals],
   )
   const windowName = describeWindow(resolved, modes.source, view === null && wholeFile)
+  // The test-validity checklist of this window (core/checklists/dynamic), with the fit once it is in.
+  const report = useMemo(
+    () => (series ? modeChecklist(ds, ws, series.rows, result, resolved.point) : null),
+    [ds, ws, series, result, resolved.point],
+  )
 
   return (
     <div className="view-split md">
@@ -144,6 +152,7 @@ function ModesWorkspace({ ds, ws }: { ds: Dataset; ws: Workspace }) {
               rowsText={axis ? rangeText(ds, axis, series.rows) : ''}
               plotInput={plot?.input ?? null}
               showResiduals={showResiduals}
+              report={report}
             />
             {crossesSegment(ds, series.rows) && (
               <div className="callout callout-warning" role="note">
@@ -199,6 +208,7 @@ function ModesWorkspace({ ds, ws }: { ds: Dataset; ws: Workspace }) {
             {result?.model === 'oscillation' && result.fit.ok && result.fit.peaks.length > 0 && (
               <PeaksTable result={result} series={series} unit={channel.meta.unit} />
             )}
+            <ModesChecklist ds={ds} ws={ws} report={report} point={resolved.point} windowName={windowName} fitting={fitting} />
           </div>
         )}
       </div>
@@ -505,6 +515,7 @@ function ModesHeading({
   rowsText,
   plotInput: input,
   showResiduals,
+  report,
 }: {
   ds: Dataset
   ws: Workspace
@@ -515,6 +526,7 @@ function ModesHeading({
   rowsText: string
   plotInput: ModesPlotInput | null
   showResiduals: boolean
+  report: DynamicReport | null
 }) {
   const rows = series.rows[1] - series.rows[0]
   const stem = safeFilename(
@@ -572,6 +584,14 @@ function ModesHeading({
         const envelope =
           result?.model === 'oscillation' && result.fit.ok ? oscillationEnvelope(series.t, result.fit) : null
         downloadText(`${stem}.csv`, fitCsv(series, result, channelTitle(channel), envelope), 'text/csv')
+      },
+    },
+    {
+      label: 'Test validity checklist (CSV)',
+      hint: 'Each check: status, measured, criterion, source',
+      disabled: !report,
+      onSelect: () => {
+        if (report) downloadText(`${stem}_checklist.csv`, modeChecklistCsv(report, windowName), 'text/csv')
       },
     },
     {

@@ -19,6 +19,8 @@ src/
     analysis/           stats (window stats unwrap headings across north), polynomial fits, mode identification,
                         formula language, derived channels, decimation, range and endurance, steady-window search
                         (steady.ts)
+    checklists/         test-validity checklists (see "Test validity checklists"): shared types, citations, helpers,
+                        the dynamic, static-stability and performance checklists, CSV rows
     export/             CSV, session JSON, MATLAB script generator (its xppStats unwraps the same headings),
                         downloads
     slots.ts            colour slots of a channel list (a panel, the X–Y Y channels): colour follows the channel
@@ -194,6 +196,39 @@ MATLAB export repeats the same procedure (`xppFitCurve`, `xppRangeEndurance`, `x
 rounding. The X–Y presets may create a formula channel on demand (total engine power, total thrust) through
 `saveDerived`.
 
+## Test validity checklists (core/checklists)
+
+Three pure checklists judge whether a test was flown the way the course's sources ask (the lectures, Cook, NATO
+RTO-AG-300 Vol. 14, the brief): `dynamic.ts` (a Dynamic modes window: trim window T before the detected input I, the
+response R), `staticStability.ts` (the trim points behind a pitch-control-against-C_L plot) and `performance.ts` (the
+steady level points behind a range-and-endurance fit). Each returns `Check`s (`types.ts`): `status` pass / warn / fail /
+not-checkable / not-settled / info, `severity` (critical, analysis, advisory, info, open), the measured value, the
+criterion, a one-line hint, the "Why", short citations (`cite.ts` formats the registry's keys: "NATO 13-10" ->
+"NATO AG-300 v14 p.13-10"; a "not checkable" line names the Data Output row from `groupRows`, starred when its index is
+not confirmed) and a `judgement` flag for thresholds no source gives. Questions the sources do not settle are
+`OpenItem`s (static N1–N4, performance U1–U7), never pass or fail. The set checklists give each point a verdict (Use,
+Correct, Plot only, Retest, Cannot confirm, Left out) and the set one in NATO Table 29-I's words; the used points U are
+what the X–Y fit draws when "Fit the used points only" is ticked. A shared id (`time-base`, `sample-rate`,
+`throttle-fixed`, `trim-fixed`, `configuration-constant`, `weather`, `envelope`, `autopilot-record`, ...) computes the
+same thing in every checklist through `helpers.ts` (power steadiness smoothed inside the window only, who flew pitch:
+the surface follows a moving servo with R² ≥ 0.9 while the stick is still, settling after the last power change, ...);
+only the thresholds are each test's (the dynamic checklist's are overridable by name, `CHECK_THRESHOLDS`; the static
+ones are documented in `TRIM_CHECK_THRESHOLDS`). `recut.ts` finds a point's longest stretch with the levers, the thrust
+(and on request the trim) still, for "Re-cut … flagged points": Find steady points accepts the power within ± 3 %, so
+its windows can start while the throttle is still being trimmed; the set verdicts count the same points
+(`recutFailing`, `recutCounts`) and say "Fix the analysis — re-cut …" when that alone could leave enough usable points.
+The dynamic checklist judges the autopilot on its own spans (T and R, whole and every 2 s, then TIR) without the ±30 s
+widening the set checklists use, so an autopilot that took over after the input is found on the input's own axis.
+`registry.ts` lists every check;
+`export.ts` writes the rows (CSV / TSV, formula-like cells defused). Tests use synthetic logs only (`fixtures.ts`).
+Settings live on the workspace (`trimCheck`, `perfCheck`, `checklist.kind`) and in `ModesConfig.check`, not in
+`XYConfig` (applying an X–Y preset replaces it); `sanitizeWorkspace` keeps only valid values and sessions carry them.
+Views: `views/points/ChecklistPanel` (the Test points panel; model `checklistModel.ts`: the points of the X–Y group
+filter, the plotted channels or the preset's), `views/modes/ModesChecklist` (`modeChecksModel.ts`) and the X–Y summary
+(`XYChecklistSummary`, "Open checklist" calls `openChecklist`). The MATLAB export writes the same rows to
+`out/test_checks.csv` (`checklistExport.ts` runs the Modes fit for it), as the app computed them; one tab's script
+writes `out/test_checks_xy.csv` or `out/test_checks_modes.csv` instead (`checksFileName`), so neither overwrites the other.
+
 ## Charts
 
 - Import ECharts only from `charts/echarts.ts` (tree-shaken registration). Option builders live in `charts/options/`
@@ -261,8 +296,9 @@ rounding. The X–Y presets may create a formula channel on demand (total engine
   fixtures and examples use synthetic values.
 - `npm run e2e` (scripts/e2e.mjs, after `npm run build`) drives the built app in a local Chrome/Edge with
   playwright-core: landing, every tab with the demo in light and dark, a dragged selection saved as a test point, the
-  X–Y range-and-endurance preset, Find steady points and Add points from times, optionally a real log (`--file`, where
-  the steady points found are added), a tablet width; screenshots go to `test-results/`. It fails on any console error,
+  X–Y range-and-endurance preset, Find steady points and Add points from times, the test-validity checklists (Test
+  points panel, both kinds, each keeping its own settings; Dynamic modes card; the X–Y summary), optionally a real log (`--file`, where the steady
+  points found are added and both set checklists are opened), a tablet width; screenshots go to `test-results/`. It fails on any console error,
   so also on anything the Content-Security-Policy blocks. `--dist` serves another build folder (`vite build
   --outDir ...`) and `--port` another port, so several checks can run side by side.
   `node scripts/smoke.mjs <tab>` screenshots one tab from the dev server while working on it.
@@ -270,7 +306,10 @@ rounding. The X–Y presets may create a formula channel on demand (total engine
   `view-<id>`, `time-mode-select`, `time-plot-area`, `selection-bar`, `save-point-button`, `save-point-confirm`,
   `points-row`, `xy-re-summary`, `xy-re-table` (the demo's range and endurance through the jet preset),
   `find-steady-button`, `steady-dialog`, `steady-row`, `steady-add`, `add-times-button`, `times-dialog`, `times-input`,
-  `times-row`, `times-verdict`, `times-add` (Find steady points and Add points from times).
+  `times-row`, `times-verdict`, `times-add` (Find steady points and Add points from times), `points-checklist`,
+  `points-checklist-verdict`, `points-checklist-point`, `points-checklist-row`, `modes-checklist`,
+  `modes-checklist-verdict`, `modes-checklist-row`, `xy-checks-perf`, `xy-checks-trim` (and their `-verdict`, `-open`)
+  (the test-validity checklists).
 - CI (GitHub Actions) runs lint, tests and the build before deploying to Pages. Its first step fails when a tracked
   file looks like flight data or an export of it (`*.txt`, `*.csv`, `*.tsv`, `*.dat`, `xpp_*.m`, session JSON,
   `out/`, `samples/`) or is over 1 MB. Only the deploy job may write to Pages; actions are pinned to commit SHAs

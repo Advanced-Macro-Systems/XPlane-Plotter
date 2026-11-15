@@ -11,7 +11,9 @@ import { copyText } from '../../core/export/download'
 import type { XYConfig } from '../../core/types'
 import { toast } from '../../store/app'
 import { formatMeanSd } from '../points/pointsModel'
+import type { XYChecklist } from '../points/checklistModel'
 import { SlotSwatch } from './Glyphs'
+import { XYChecklistSummary } from './XYChecklistSummary'
 import type { XYData, XYFit } from './xyModel'
 import type { XYRange } from './xyRange'
 import {
@@ -60,12 +62,15 @@ export function XYResults({
   fits,
   fit,
   re,
+  checklist = null,
 }: {
   data: XYData
   fits: readonly XYFit[]
   fit: XYConfig['fit']
   /** Range and endurance per fit; null when its markers are off */
   re: readonly XYRange[] | null
+  /** The test-validity checklist's summary, when the plot is a range-and-endurance fit or a trim curve */
+  checklist?: XYChecklist | null
 }) {
   const rows = useMemo(() => fitRows(data, fits), [data, fits])
   const means = useMemo(() => meanRows(data), [data])
@@ -73,6 +78,7 @@ export function XYResults({
 
   return (
     <div className="view-body xy-tables" id="xy-tables">
+      {checklist && <XYChecklistSummary checklist={checklist} fitTarget={data.effective.fitTarget} />}
       {re && <RangeTable data={data} results={re} />}
       <section className="card xy-table-card" data-testid="xy-fit-table" aria-labelledby="xy-fit-title">
         <header className="card-header">

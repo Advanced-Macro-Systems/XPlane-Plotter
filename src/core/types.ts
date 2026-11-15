@@ -206,6 +206,63 @@ export interface ModesConfig {
   source: 'selection' | 'view' | `point:${string}`
   model: 'oscillation' | 'first-order'
   detrend: 'none' | 'linear'
+  /** The test-validity checklist's settings for the Dynamic modes window (absent = defaults; older files) */
+  check?: ModesCheckSettings
+}
+
+// ------------------------------------------------------------------ test-validity checklists (core/checklists)
+
+/** The five dynamic modes the checklist knows (the Dynamic modes quick picks). */
+export type DynamicModeId = 'short-period' | 'phugoid' | 'dutch-roll' | 'roll-subsidence' | 'spiral'
+
+/** What the student declares about automatic controls (shared by the static and performance checklists). */
+export interface ChecklistDeclared {
+  autopilot?: 'off' | 'on' | 'unknown'
+  autothrottle?: 'off' | 'on' | 'unknown'
+  /** e.g. "ALT HOLD + HDG, A/T off" (at most 200 characters) */
+  modes?: string
+}
+
+/** ModesConfig.check: the dynamic checklist's settings. */
+export interface ModesCheckSettings {
+  /** The mode, when neither the quick pick nor the test point's name says it */
+  mode?: DynamicModeId
+  /** The run was flown with the yaw damper on (an augmented run) */
+  yawDamper?: 'off' | 'on'
+  /** The input rows [start, end), when detection picks the wrong burst */
+  input?: RowRange
+  limits?: { vmoKias?: number; mmo?: number; vsKias?: number; alphaMaxDeg?: number }
+}
+
+/** Workspace.trimCheck: the static-stability checklist's settings. */
+export interface TrimCheckSettings {
+  /** G: degrees of elevator per unit of _trim,_elev (absent: fitted) */
+  gain?: number
+  /** How the aircraft trims in pitch: a trimmable stabiliser, or trim that deflects the elevator or a tab */
+  trimType?: 'stabiliser' | 'elevator'
+  /** MAC length and the CG reference value of its leading edge (may be negative), for %MAC */
+  macFt?: number
+  lemacFt?: number
+  limits?: { vsKias?: number; alphaStallDeg?: number; mmo?: number; vmoKias?: number }
+  declared?: ChecklistDeclared
+  /** Points kept on the plot but left out of the fit by the user (this checklist's own list) */
+  fitExcluded?: string[]
+  /** The X–Y fit runs through the used points only */
+  fitUsedOnly?: boolean
+}
+
+/** Workspace.perfCheck: the range-and-endurance checklist's settings. */
+export interface PerfCheckSettings {
+  propulsion?: 'jet' | 'propeller'
+  /** κ: the thrust line against the body x axis, positive nose up (default 0) */
+  thrustAngleDeg?: number
+  /** Standard condition for the reduction (defaults: the set's mean weight and mean pressure altitude) */
+  referenceWeightLb?: number
+  referenceAltitudeFt?: number
+  limits?: { vsKeas?: number; mmo?: number; vmoKias?: number }
+  declared?: ChecklistDeclared
+  fitExcluded?: string[]
+  fitUsedOnly?: boolean
 }
 
 export interface Workspace {
@@ -219,6 +276,12 @@ export interface Workspace {
   modes: ModesConfig
   /** Channel ids shown as mean ± σ columns in the test-points table */
   tracked: string[]
+  /** Static-stability checklist settings (on the workspace: applying an X–Y preset replaces XYConfig) */
+  trimCheck?: TrimCheckSettings
+  /** Range-and-endurance checklist settings */
+  perfCheck?: PerfCheckSettings
+  /** Which checklist the Test points tab shows */
+  checklist?: { kind: 'performance' | 'static' }
 }
 
 export type TabId = 'overview' | 'time' | 'xy' | 'points' | 'modes' | 'channels'

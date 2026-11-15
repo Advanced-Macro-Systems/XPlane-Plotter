@@ -13,6 +13,7 @@ import type { Dataset, TimeAxis, Workspace } from '../../core/types'
 import { loadSessionFile } from '../../layout/fileActions'
 import { openPointsTool, setTab, toast, useActiveDataset, useApp, useWorkspace } from '../../store/app'
 import { AddPointDialog } from './AddPointDialog'
+import { ChecklistPanel } from './ChecklistPanel'
 import { PointsTable } from './PointsTable'
 import { PointsToolbar } from './PointsToolbar'
 import { buildPointRows, pointCounts, sortPointRows, type PointSortKey, type SortDirection } from './pointsModel'
@@ -102,6 +103,7 @@ function PointsWorkspace({ ds, ws, axis }: { ds: Dataset; ws: Workspace; axis: T
                 least-squares trend moves it across the window by more than twice its scatter. Hidden points stay in the
                 table and exports but are left out of X–Y plots.
               </p>
+              <ChecklistPanel ds={ds} ws={ws} />
             </>
           )}
       </div>

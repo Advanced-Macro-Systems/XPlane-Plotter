@@ -1,0 +1,241 @@
+/* The test-validity checklist's shared parts (components/Checklist.tsx): statuses, the verdict, check rows and the
+   questions the sources leave open. Every status shows its icon and its word, never colour alone. Class prefix ck-. */
+
+.ck-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.ck-status-pass {
+  background: var(--success-soft);
+  color: var(--success-text);
+}
+.ck-status-warn {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+.ck-status-fail {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+.ck-status-not-checkable,
+.ck-status-not-settled {
+  background: var(--surface-3);
+  color: var(--text-muted);
+}
+.ck-status-info {
+  background: var(--info-soft);
+  color: var(--info-text);
+}
+
+.ck-verdict {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-muted);
+  border-left-width: 4px;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.ck-verdict > svg {
+  flex: none;
+  margin-top: 2px;
+}
+.ck-verdict-pass {
+  border-left-color: var(--success);
+}
+.ck-verdict-pass > svg {
+  color: var(--success-text);
+}
+.ck-verdict-fail {
+  border-left-color: var(--danger);
+}
+.ck-verdict-fail > svg {
+  color: var(--danger-text);
+}
+.ck-verdict-warn {
+  border-left-color: var(--warning);
+}
+.ck-verdict-warn > svg {
+  color: var(--warning-text);
+}
+.ck-verdict-not-checkable,
+.ck-verdict-info {
+  border-left-color: var(--border-strong);
+}
+.ck-verdict-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+.ck-verdict-text strong {
+  font-weight: 600;
+}
+
+.ck-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ck-row {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-muted);
+}
+.ck-row:first-child {
+  border-top: 0;
+}
+.ck-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+.ck-row-title {
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.ck-tag {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+.ck-tag-quiet {
+  border-style: dashed;
+  color: var(--text-subtle);
+}
+.ck-line {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.ck-line-label {
+  color: var(--text-subtle);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ck-measured {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.ck-hint {
+  margin: 0;
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.ck-hint::before {
+  content: '→ ';
+  color: var(--text-subtle);
+}
+.ck-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+.ck-cites {
+  color: var(--text-subtle);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.ck-why {
+  font-size: 12px;
+}
+.ck-why > summary {
+  color: var(--info-text);
+  cursor: pointer;
+  font-weight: 600;
+}
+.ck-why > summary:focus-visible {
+  border-radius: var(--radius-sm);
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+.ck-why p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.ck-why-meta {
+  color: var(--text-subtle) !important;
+  font-size: 11px;
+}
+
+.ck-open {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+}
+.ck-open-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.ck-open-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ck-open-list summary {
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.ck-open-list summary:focus-visible {
+  border-radius: var(--radius-sm);
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+.ck-open-list p {
+  margin: 4px 0 0 18px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ck-open-id {
+  font-family: var(--mono);
+  font-weight: 600;
+}
+.ck-open-meanwhile strong {
+  color: var(--text);
+}

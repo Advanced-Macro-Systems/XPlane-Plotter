@@ -204,3 +204,40 @@ describe('nextGroupSlot', () => {
     expect(nextGroupSlot([...all, { id: 'x', name: '', slot: 0 }])).toBe(1)
   })
 })
+
+describe('sanitizeWorkspace: checklist settings', () => {
+  const withPoint = (patch: Record<string, unknown>) => {
+    const ds = dataset()
+    const base = defaultWorkspace(ds)
+    return sanitizeWorkspace({ ...base, points: [{ id: 'p1', name: 'P1', groupId: 'g1', start: 1, end: 5 }], ...patch }, ds)
+  }
+
+  it('loads a workspace without checklist settings unchanged (no new keys)', () => {
+    const ws = withPoint({})
+    expect('trimCheck' in ws).toBe(false)
+    expect('perfCheck' in ws).toBe(false)
+    expect('checklist' in ws).toBe(false)
+    expect('check' in ws.modes).toBe(false)
+  })
+
+  it('trimCheck: drops a negative gain, a NaN MAC, an unknown trim type and a missing point id; keeps a negative LEMAC', () => {
+    const ws = withPoint({
+      trimCheck: { gain: -3, macFt: NaN, lemacFt: -2.5, trimType: 'canard', fitExcluded: ['p1', 'nope'], declared: { autopilot: 'on', modes: 'x'.repeat(201) }, fitUsedOnly: 'yes' },
+    })
+    expect(ws.trimCheck).toEqual({ lemacFt: -2.5, fitExcluded: ['p1'], declared: { autopilot: 'on' } })
+  })
+
+  it('perfCheck: drops propulsion "rocket", a NaN thrust angle and a missing point id; keeps valid limits', () => {
+    const ws = withPoint({ perfCheck: { propulsion: 'rocket', thrustAngleDeg: NaN, fitExcluded: ['zz'], limits: { vsKeas: 110, mmo: -1 }, fitUsedOnly: true } })
+    expect(ws.perfCheck).toEqual({ limits: { vsKeas: 110 }, fitUsedOnly: true })
+    expect(withPoint({ perfCheck: { propulsion: 'rocket' } }).perfCheck).toBeUndefined()
+  })
+
+  it('keeps the checklist kind and a valid Modes check; drops bad input rows and unknown modes', () => {
+    const ws = withPoint({ checklist: { kind: 'static' }, modes: { ...defaultWorkspace(dataset()).modes, check: { mode: 'spiral', yawDamper: 'on', input: [2, 99] } } })
+    expect(ws.checklist).toEqual({ kind: 'static' })
+    expect(ws.modes.check).toEqual({ mode: 'spiral', yawDamper: 'on' })
+    expect(withPoint({ checklist: { kind: 'dynamic' } }).checklist).toBeUndefined()
+    expect(withPoint({ modes: { ...defaultWorkspace(dataset()).modes, check: { mode: 'tumble', input: [1, 4] } } }).modes.check).toEqual({ input: [1, 4] })
+  })
+})

@@ -10,6 +10,7 @@ import { pointsTableCsv } from '../../core/export/csv'
 import { downloadText } from '../../core/export/download'
 import type { Dataset, PointGroup, Workspace } from '../../core/types'
 import { exportMatlab, saveSessionFile } from '../../layout/fileActions'
+import { setChecklistCsv } from './checklistModel'
 import { addGroup, getWorkspace, openPointsTool, removeGroup, setTracked, toast, updateGroup } from '../../store/app'
 import { Dropdown } from '../../ui/Dropdown'
 import { exportStem } from '../xy/xyControls'
@@ -38,6 +39,16 @@ export function PointsToolbar({ ds, ws, canAdd, onAdd, onImportSession }: Points
       onSelect: () => {
         const current = getWorkspace() ?? ws
         downloadText(`${exportStem(ds.name, 'points')}.csv`, pointsTableCsv(ds, current, current.tracked), 'text/csv')
+      },
+    },
+    {
+      label: 'Checklist (CSV)',
+      hint: 'Test-validity checks of the chosen test: status, measured, criterion, source',
+      disabled: !hasPoints,
+      onSelect: () => {
+        const current = getWorkspace() ?? ws
+        const kind = current.checklist?.kind ?? (current.xy.rangeEndurance ? 'performance' : 'static')
+        downloadText(`${exportStem(ds.name, `checklist_${kind}`)}.csv`, setChecklistCsv(ds, current, kind), 'text/csv')
       },
     },
     {

@@ -12,6 +12,7 @@
 // Script-level names are distinctive (logNames, iPoint, ...) because a script shares the caller's workspace (run_all.m).
 
 import { isDirectionChannel } from '../analysis/windowStats'
+import { CHECKLIST_COLUMNS, type ChecklistRow } from '../checklists/export'
 import { channelTitle } from '../channels/title'
 import { channelAlias } from '../channels/alias'
 import { channelById } from '../dataset'
@@ -47,6 +48,12 @@ export interface MatlabExportOptions {
    * through the samples inside them only.
    */
   xyLimits?: { x: readonly [number, number] | null; y: readonly [number, number] | null } | null
+  /**
+   * The test-validity checklists' results as the app computed them (core/checklists/export rows): written by the
+   * script as they are (not recomputed in MATLAB) to out/test_checks.csv, or for one tab's script to
+   * test_checks_xy.csv / test_checks_modes.csv (checksFileName). Absent or empty: no such section.
+   */
+  checks?: readonly ChecklistRow[] | null
 }
 
 /** The app's 8 categorical colours in the light theme (styles/global.css --series-1..8), in slot order. */
@@ -375,6 +382,8 @@ export function matlabScript(opts: MatlabExportOptions): string {
   const xy = opts.include.xy ? xySection(w, ds, ws, opts, doXY) : null
   const time = opts.include.time ? timeSection(w, ds, ws, opts) : null
   const modes = opts.include.modes ? modeSection(w, ds, ws, opts, modePoint) : null
+  const checksFile = checksFileName(opts.include)
+  const checks = opts.checks?.length ? checksSection(opts.checks, checksFile) : null
   const formulas = w.formulaLines()
   const figures = [xy, time, modes].some((s) => s?.figure)
 
@@ -384,6 +393,7 @@ export function matlabScript(opts: MatlabExportOptions): string {
   if (xy?.figure && rangeEnduranceOn(ws)) outputs.push('range and endurance (X-Y fit) -> out/range_endurance.txt')
   if (time?.figure) outputs.push('time histories -> out/time_history.png, out/time_history.pdf')
   if (modes?.figure) outputs.push('mode fit -> out/mode_fit.png, out/mode_fit.pdf, out/mode_fit.txt')
+  if (checks) outputs.push(`test-validity checks (the app's results) -> out/${checksFile}`)
 
   const sections: { title: string; lines: string[] }[] = []
   sections.push({ title: 'Read the log', lines: readSection(w, ds, fileColumns) })
@@ -405,6 +415,7 @@ export function matlabScript(opts: MatlabExportOptions): string {
   if (xy) sections.push({ title: 'X-Y plot -> out/xy.png, out/xy.pdf', lines: xy.lines })
   if (time) sections.push({ title: 'Time histories -> out/time_history.png, .pdf', lines: time.lines })
   if (modes) sections.push({ title: 'Mode fit -> out/mode_fit.png, .pdf, .txt', lines: modes.lines })
+  if (checks) sections.push({ title: `Test validity checks -> out/${checksFile}`, lines: checks })
 
   const scriptName = matlabScriptName(ds.name)
   const sectionList = ['1 Settings', ...sections.map((s, i) => `${i + 2} ${s.title.replace(/ ->.*$/, '')}`)].join(', ')
@@ -446,6 +457,41 @@ export function matlabScript(opts: MatlabExportOptions): string {
 }
 
 // ------------------------------------------------------------------ sections
+
+/**
+ * The file the checks go to in out/: test_checks.csv for the whole-workspace script; one per tab's script
+ * (test_checks_xy.csv, test_checks_modes.csv), so scripts run side by side in one folder never overwrite each other.
+ */
+export function checksFileName(include: MatlabExportOptions['include']): string {
+  const sets = include.points || include.xy
+  if (sets && include.modes) return 'test_checks.csv'
+  if (include.modes) return 'test_checks_modes.csv'
+  if (sets) return 'test_checks_xy.csv'
+  return 'test_checks.csv'
+}
+
+/**
+ * The checklists' rows as a cell array the script writes with writetable (to out/`file`). Cells that a spreadsheet
+ * would run as a formula (= + - @ first) get a leading ' here, as in the app's own CSV files.
+ */
+function checksSection(rows: readonly ChecklistRow[], file: string): string[] {
+  const cell = (text: string) => matlabString(/^[=+\-@]/.test(text) ? `'${text}` : text)
+  const header = CHECKLIST_COLUMNS.map((c) => matlabString(c)).join(', ')
+  return [
+    "% The test-validity checklists (Test points and Dynamic modes tabs) as X-Plane Plotter computed them when this",
+    '% script was exported: one row per check with its status, the value measured, the criterion and the sources',
+    '% (statuses: pass, warn, fail, not checkable, not settled, info; "engineering judgement" marks thresholds no source',
+    '% gives). They are the app\'s values, written here as they are, not recomputed: export the script again after',
+    '% changing the test points, the plot or the window.',
+    `checkHeader = {${header}};`,
+    'checkRows = {',
+    ...rows.map((r) => `    ${CHECKLIST_COLUMNS.map((c) => cell(r[c])).join(', ')}`),
+    '};',
+    'checkTable = cell2table(checkRows, \'VariableNames\', checkHeader);',
+    `writetable(checkTable, fullfile(outDir, '${file}'));`,
+    `fprintf('\\nTest validity checks (%d rows, as the app computed them) -> %s\\n', size(checkRows, 1), fullfile(outDir, '${file}'));`,
+  ]
+}
 
 interface Section {
   lines: string[]

@@ -21,6 +21,7 @@ import { XYResults } from './XYResults'
 import { exportStem, figureZoom, focusExtent, focusedAxes, plotKey, plotSummary } from './xyControls'
 import { buildXYData, computeFits, defaultLabels, finalLabels, type XYDataConfig } from './xyModel'
 import { NEEDS_TEST_POINTS, rangeResults } from './xyRange'
+import { xyChecklist } from '../points/checklistModel'
 import { samplesCsv } from './xyTables'
 import './xy.css'
 
@@ -72,7 +73,15 @@ function useXYModel(ds: Dataset, ws: Workspace, view: RowRange | null, axis: Tim
   const [showAllFor, setShowAllFor] = useState<string | null>(null)
   const showAll = showAllFor === key
   const extent = useMemo(() => focusedAxes(focus, showAll), [focus, showAll])
-  const fits = useMemo(() => computeFits(data, xy.fit, extent), [data, xy.fit, extent])
+  // The test-validity checklist's summary (range and endurance, or a trim curve); with "Fit the used points only" the
+  // fit through the point means leaves out what the checklist leaves out (the plot still shows every point).
+  const checklist = useMemo(() => xyChecklist(ds, ws), [ds, ws])
+  const usedOnly = checklist?.fitUsedOnly === true && data.effective.fitTarget === 'means'
+  const fitData = useMemo(
+    () => (usedOnly && checklist ? { ...data, means: data.means.filter((m) => checklist.used.has(m.point.id)) } : data),
+    [data, usedOnly, checklist],
+  )
+  const fits = useMemo(() => computeFits(fitData, xy.fit, extent), [fitData, xy.fit, extent])
   // Range and endurance of every fit, when its markers are on and there is a fit (null = off, as the sidebar's checkbox
   // and the MATLAB export have it). When the settings ask for test points and there are none yet (a range and
   // endurance preset on a fresh log), every row is plotted: no speeds from that, the table says to save points first.
@@ -88,13 +97,13 @@ function useXYModel(ds: Dataset, ws: Workspace, view: RowRange | null, axis: Tim
     [xy.title, xy.xLabel, xy.yLabel, defaults],
   )
   const onShowAll = (all: boolean) => setShowAllFor(all ? key : null)
-  return { data, fits, re, defaults, labels, focus, showAll, extent, onShowAll }
+  return { data, fits, re, defaults, labels, focus, showAll, extent, onShowAll, checklist }
 }
 
 function XYWorkspace({ ds, ws, axis }: { ds: Dataset; ws: Workspace; axis: TimeAxis }) {
   const view = useApp((s) => s.view)
   const xy = ws.xy
-  const { data, fits, re, defaults, labels, focus, showAll, extent, onShowAll } = useXYModel(ds, ws, view, axis)
+  const { data, fits, re, defaults, labels, focus, showAll, extent, onShowAll, checklist } = useXYModel(ds, ws, view, axis)
   const chartRef = useRef<ECharts | null>(null)
 
   const groupNames = ws.groups.filter((g) => data.effective.groupIds.includes(g.id)).map((g) => g.name)
@@ -199,7 +208,7 @@ function XYWorkspace({ ds, ws, axis }: { ds: Dataset; ws: Workspace; axis: TimeA
             />
           )}
         </div>
-        {!data.empty && <XYResults data={data} fits={fits} fit={xy.fit} re={re} />}
+        {!data.empty && <XYResults data={data} fits={fits} fit={xy.fit} re={re} checklist={checklist} />}
       </div>
     </div>
   )

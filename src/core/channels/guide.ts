@@ -84,7 +84,7 @@ export function loggingGuide(): LoggingRecommendation[] {
         row('point-weather-temp-press', 'Dynamic pressure q.'),
         row('payload-weights', 'Station loads that move the CG.'),
         row('fuel-weights', 'CG drift as fuel burns.'),
-        row('servos', 'Autopilot servo commands: compare them with the stick to show the autopilot was off.'),
+        row('servos', 'Autopilot servo commands: with the stick and the elevator they show who flew pitch, pilot or autopilot.'),
         row('artificial-stability', 'Stability augmentation: it should stay 0.'),
         row('control-forces', 'Stick force (optional; it reads 0 on aircraft without a control-feel model).'),
         row('angular-moments', 'Total pitching moment near 0 confirms the trim (optional).'),
