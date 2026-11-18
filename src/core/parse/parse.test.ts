@@ -276,8 +276,34 @@ describe('parseText: unreadable input', () => {
 
   it('rejects binary content and recognises UTF-16 text', () => {
     expect(errorOf(() => parseText('\u0089PNG\r\n\u001a\n\0\0\0\rIHDR\0\0\u0001')).message).toMatch(/binary data/)
+    const zip = `PK\u0003\u0004\u0014\0\u0006\0\b\0\0\0!\0${'[Content_Types].xml'.repeat(4)}\n`
+    expect(errorOf(() => parseText(zip)).message).toMatch(/binary data/)
     const bytes = new Uint8Array([0xff, 0xfe, ...[...'a,b\r\n1,2\r\n'].flatMap((c) => [c.charCodeAt(0), 0])])
     expect(errorOf(() => parseText(new TextDecoder().decode(bytes))).message).toMatch(/UTF-16/)
+  })
+
+  it('opens an X-Plane 12 log whose header holds a stray NUL (after "sync_,butn")', () => {
+    const header = ['_real,_time', 'sync_,butn\0', '_Vind,_kias']
+    const text = xpText([[1, 0, 250], [2, 1, 251]], header)
+    const table = parseText(text)
+    expect(table.headers).toEqual(['_real,_time', 'sync_,butn', '_Vind,_kias'])
+    expect(table.rowCount).toBe(2)
+    expect(table.warnings).toEqual([])
+    expect(column(table, '_Vind,_kias')).toEqual([250, 251])
+    for (const size of [1, 7, 4096]) expectSame(outcome(piecesOf(text, size)), table, `pieces of ${size}`)
+  })
+
+  it('takes up to 1/64 of the first 4096 characters as stray NULs, and more as binary content', () => {
+    const text = xpText(Array.from({ length: 120 }, (_, i) => [i, i + 0.5, 200 + i]))
+    expect(text.length).toBeGreaterThan(4096)
+    /** The text with its first `count` double spaces (all well inside the first 4096 characters) as " \0". */
+    const withNuls = (count: number): string => {
+      let n = 0
+      return text.replace(/ {2}/g, (pair) => (n++ < count ? ' \0' : pair))
+    }
+    expect(withNuls(64).indexOf('\0', 4096 - 64)).toBe(-1)
+    expectSame(outcome([withNuls(64)]), parseText(text), '64 NULs')
+    expect(errorOf(() => parseText(withNuls(65))).message).toMatch(/binary data/)
   })
 
   it('rejects an X-Plane table without a header line', () => {

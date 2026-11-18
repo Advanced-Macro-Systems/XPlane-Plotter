@@ -5,8 +5,9 @@
 // must accept exactly the rows this parser accepts, so it mirrors these rules — change both together.
 //
 //  1. Lines. The text is split at "\n"; one trailing "\r" per line is removed; a UTF-8 BOM at the very start is
-//     ignored. "Blank" characters are space, tab and NUL (a log cut off by a power loss can end in NUL bytes).
-//     Blank lines (empty, or only blank characters) are ignored everywhere and never counted.
+//     ignored. "Blank" characters are space, tab and NUL (a log cut off by a power loss can end in NUL bytes, and
+//     X-Plane 12 writes a NUL after the column name "sync_,butn"). Blank lines (empty, or only blank characters) are
+//     ignored everywhere and never counted.
 //  2. Header. The first non-blank line that does not start with "#" is the header. Characters between double quotes
 //     do not count in this rule (an unclosed quote runs to the end of the line). If the header has at least two "|",
 //     or ends with "|" (blanks aside), the file is an X-Plane table (no quoting). Otherwise it is CSV-like with
@@ -36,14 +37,16 @@
 //     header or (X-Plane) does not end with "|" (a row cut off mid-write): it is skipped with the warning
 //     "The last line was incomplete and was skipped." and not counted.
 //
-// Errors (ParseError, user-facing): empty or whitespace-only input, NUL bytes among the first 4096 characters other
-// than a trailing run (binary or UTF-16 text), no header line, and a header without a single accepted row.
+// Errors (ParseError, user-facing): empty or whitespace-only input; first 4096 characters (a trailing run of NULs
+// aside) that hold NULs and are either UTF-16 text or more than 1/64 NUL and other control characters (binary: a few
+// stray NULs in plain text are blanks); no header line; and a header without a single accepted row.
 
 import type { DatasetFormat } from '../types'
 import { CELL_EMPTY, CELL_MISSING, CELL_NUMBER, CELL_TEXT, NumberScanner, parseCell, type CellResult } from './numbers'
 import { ParseError, type RawTable } from './table'
 
 const NUL = 0
+const LF = 10
 const CR = 13
 const TAB = 9
 const SPACE = 32
@@ -56,6 +59,12 @@ const BOM = 0xfeff
 
 /** Characters checked for NUL bytes before any line is read (so the outcome never depends on chunk sizes). */
 const PROBE_LENGTH = 4096
+/**
+ * Binary content: NUL and other control characters (TAB, LF and CR aside) are more than this share of the probe.
+ * A few stray NULs in plain text are blanks (rule 1): X-Plane 12 writes one after the column name "sync_,butn".
+ * Binary files (a spreadsheet, an image, a MAT-file) have them by the dozen in their first few kilobytes.
+ */
+const BINARY_SHARE = 1 / 64
 /** A quoted CSV cell may span at most this many lines; beyond that the opening quote is taken as a stray character. */
 const MAX_RECORD_LINES = 100
 /** Upper bound for the up-front column allocation (cells), whatever the size estimate says. */
@@ -327,14 +336,20 @@ class TableParser implements StreamingParser {
     // UTF-16 text of ASCII characters decodes (as UTF-8) to every other character being NUL.
     let even = 0
     let odd = 0
+    let control = 0
     for (let i = 0; i < probe.length; i += 1) {
-      if (probe.charCodeAt(i) !== 0) continue
-      if (i % 2 === 0) even += 1
-      else odd += 1
+      const c = probe.charCodeAt(i)
+      if (c === NUL) {
+        if (i % 2 === 0) even += 1
+        else odd += 1
+      } else if (c < SPACE && c !== TAB && c !== LF && c !== CR) {
+        control += 1
+      }
     }
     const nul = even + odd
-    const utf16 = nul * 3 >= probe.length && Math.max(even, odd) >= nul * 0.9
-    throw new ParseError(utf16 ? MESSAGE_UTF16 : MESSAGE_BINARY)
+    if (nul * 3 >= probe.length && Math.max(even, odd) >= nul * 0.9) throw new ParseError(MESSAGE_UTF16)
+    // A few stray NULs in plain text are blanks (rule 1), like the one X-Plane 12 writes after "sync_,butn".
+    if (nul + control > probe.length * BINARY_SHARE) throw new ParseError(MESSAGE_BINARY)
   }
 
   /** Processes every complete line in pending + chunk and keeps the unterminated rest. */
